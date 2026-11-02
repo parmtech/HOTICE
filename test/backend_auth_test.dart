@@ -22,6 +22,25 @@ class MemoryTokenStore implements SessionTokenStore {
   Future<void> write(String token) async => value = token;
 }
 
+class FaultyTokenStore extends MemoryTokenStore {
+  bool failRead = false;
+  bool failDelete = false;
+  int deleteCalls = 0;
+
+  @override
+  Future<String?> read() async {
+    if (failRead) throw Exception('Secure storage temporarily unavailable');
+    return await super.read();
+  }
+
+  @override
+  Future<void> delete() async {
+    deleteCalls++;
+    if (failDelete) throw Exception('Secure storage deletion unavailable');
+    await super.delete();
+  }
+}
+
 final token = List<String>.filled(64, 'a').join();
 
 http.Response jsonResponse(int status, Object body) => http.Response(
@@ -470,4 +489,68 @@ void main() {
     expect(tester.takeException(), isNull);
     store.dispose();
   });
+  test('secure storage read error keeps local startup available without API login',
+      () async {
+    final vault = FaultyTokenStore()
+      ..value = token
+      ..failRead = true;
+    var requests = 0;
+    final client = BackendAuthClient(
+      baseUri: Uri.parse('https://api.example.test'),
+      tokenStore: vault,
+      client: MockClient((_) async {
+        requests++;
+        throw StateError('A stored token must never be used without reading it');
+      }),
+    );
+    expect(await client.restoreSession(), isNull);
+    expect(vault.value, token, reason: 'An unreadable token is not erased.');
+    expect(requests, 0, reason: 'No unverified account request is sent.');
+    client.close();
+  });
+
+  test('failed revoked-session token cleanup does not crash local startup',
+      () async {
+    final vault = FaultyTokenStore()
+      ..value = token
+      ..failDelete = true;
+    var requests = 0;
+    final client = BackendAuthClient(
+      baseUri: Uri.parse('https://api.example.test'),
+      tokenStore: vault,
+      client: MockClient((request) async {
+        requests++;
+        expect(request.url.path, '/v1/me');
+        return jsonResponse(401, {'error': 'revoked'});
+      }),
+    );
+    expect(await client.restoreSession(), isNull);
+    expect(requests, 1);
+    expect(vault.deleteCalls, 1);
+    expect(vault.value, token,
+        reason: 'The failed deletion may leave an unusable token on disk.');
+    client.close();
+  });
+
+  test('invalid token cleanup failure still rejects authentication',
+      () async {
+    final vault = FaultyTokenStore()
+      ..value = 'invalid'
+      ..failDelete = true;
+    var requests = 0;
+    final client = BackendAuthClient(
+      baseUri: Uri.parse('https://api.example.test'),
+      tokenStore: vault,
+      client: MockClient((_) async {
+        requests++;
+        return jsonResponse(200, {'user': {'id': 'unexpected'}});
+      }),
+    );
+    expect(await client.restoreSession(), isNull);
+    expect(vault.deleteCalls, 1);
+    expect(requests, 0, reason: 'Malformed credentials must never reach API.');
+    client.close();
+  });
+
+
 }

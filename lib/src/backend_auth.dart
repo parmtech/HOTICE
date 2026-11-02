@@ -146,15 +146,38 @@ class BackendAuthClient {
   /// Restore a session only after the server confirms the token. Network
   /// failures preserve the token for a later attempt; revoked sessions clear it.
   Future<BackendUser?> restoreSession() async {
-    final token = await _tokenStore.read();
+    // Session recovery must not make an otherwise healthy encrypted local
+    // workspace inaccessible when the OS secure-storage service is offline.
+    // Never authenticate from a cached token without server verification.
+    String? token;
+    try {
+      token = await _tokenStore.read();
+    } on Exception {
+      return null; // Preserve the secure-store contents for a later retry.
+    }
     if (token == null || !RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(token)) {
-      if (token != null) await _tokenStore.delete();
+      if (token != null) {
+        try {
+          await _tokenStore.delete();
+        } on Exception {
+          // Fail closed. A failed cleanup must not block guest/local projects.
+        }
+      }
       return null;
     }
     try {
       return await _loadUser(token);
     } on BackendAuthException catch (error) {
-      if (error.statusCode == 401) await _tokenStore.delete();
+      if (error.statusCode == 401) {
+        try {
+          await _tokenStore.delete();
+        } on Exception {
+          // Revoked credentials remain unusable, even if deletion is blocked.
+        }
+      }
+      return null;
+    } on Exception {
+      // Platform/transport errors never establish an authenticated session.
       return null;
     }
   }
