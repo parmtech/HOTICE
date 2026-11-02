@@ -1,5 +1,29 @@
 # HOTICE — CURRENT STATUS (30 OCTOBER 2026)
 
+> **3 November 2026 continuation — native session restore resilience (review branch):**
+> The canonical repository is `parmtech/HOTICE`. Stable `main` is still at
+> `e310bc3a18fb0d98a53180659d3f56cee1e338e6`, while later client,
+> backend, web, and owner features live in **unmerged stacked draft PRs**.
+> The last checked exact-head backend and Flutter CI workflows succeeded on
+> the draft cPanel acceptance branch (#52) on 29 October, but this is not
+> evidence of a deployable production release. Issue #33 remains NOT READY.
+>
+> This child branch `fix/native-session-restore-resilience` is based on
+> `feat/native-account-lifecycle` (draft #58). It makes secure-token read
+> or cleanup failures non-fatal to app startup. When a token cannot be read
+> or validated, the app must **not** authenticate, must preserve encrypted
+> local project storage, and should permit guest/offline use. It adds tests
+> for secure-store read failure, revoked-token cleanup failure and invalid
+> token cleanup failure. Run Flutter analysis, tests, Android build, and
+> emulator smoke on the **exact final branch head** before merging.
+>
+> **Integration gates:** PR #58 requires the account-preferences,
+> export and deletion backend of draft #57; their code is not yet an
+> integrated release. Preserve stack ancestry and never merge a child PR
+> straight to `main`. Source tests alone do not prove real cPanel staging,
+> device secure-store behaviour, live AI rendering or payments.
+
+
 This status block supersedes the historical 26 October handoff below. Use [GitHub release issue #33](https://github.com/parmtech/HOTICE/issues/33) as the authoritative production-readiness checklist; its current decision is **NOT READY TO PUBLISH**.
 
 - Canonical repository: https://github.com/parmtech/HOTICE
