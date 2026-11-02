@@ -146,15 +146,306 @@ class BackendAuthClient {
   /// Restore a session only after the server confirms the token. Network
   /// failures preserve the token for a later attempt; revoked sessions clear it.
   Future<BackendUser?> restoreSession() async {
+    // Session recovery must not make an otherwise healthy encrypted local
+    // workspace inaccessible when the OS secure-storage service is offline.
+    // Never authenticate from a cached token without server verification.
+    String? token;
+    try {
+      token = await _tokenStore.read();
+    } on Exception {
+      return null; // Preserve the secure-store contents for a later retry.
+    }
+    if (token == null || !RegExp(r'^[a-fA-F0-9]{64}
+
+  Future<void> signOut() async {
     final token = await _tokenStore.read();
-    if (token == null || !RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(token)) {
-      if (token != null) await _tokenStore.delete();
+    if (token == null) return;
+    try {
+      final response = await _send('POST', 'v1/auth/logout', token: token);
+      _checkSuccess(response, 'The server could not revoke this session.');
+    } finally {
+      // Remove the local bearer token even when offline. The server-side
+      // session then expires under its configured short TTL.
+      await _tokenStore.delete();
+    }
+  }
+
+  /// Download only the server-held account snapshot. Device-local files are
+  /// deliberately not part of this API response.
+  Future<Map<String, dynamic>> exportAccountData() async {
+    final token = await _tokenStore.read();
+    if (token == null) {
+      throw const BackendAuthException('Sign in again to export your account data.', statusCode: 401);
+    }
+    final response = await _send('GET', 'v1/me/export', token: token);
+    if (response.statusCode == 413) {
+      throw const BackendAuthException(
+        'Your account export exceeds the safe size limit. Contact HOTICE support before deleting your account.',
+        statusCode: 413,
+      );
+    }
+    _checkSuccess(response, 'Sign in again to export your account data.');
+    final data = _decodeObject(response);
+    if (data['format'] != 'hotice-account-export-v1' ||
+        data['account'] is! Map<String, dynamic> ||
+        data['cloudProjects'] is! List ||
+        data['generationJobs'] is! List ||
+        data['includedMediaBytes'] != false ||
+        data['deviceLocalProjectsIncluded'] != false) {
+      throw const BackendAuthException('The HOTICE server returned an invalid account export.');
+    }
+    return data;
+  }
+
+  /// Read the allowlisted presentation preferences shared by HOTICE clients.
+  Future<Map<String, dynamic>> loadAccountPreferences() async {
+    final token = await _tokenStore.read();
+    if (token == null) {
+      throw const BackendAuthException(
+        'Sign in again to sync your account preferences.',
+        statusCode: 401,
+      );
+    }
+    final response = await _send('GET', 'v1/me/preferences', token: token);
+    if (response.statusCode == 401) {
+      await _tokenStore.delete();
+      throw const BackendAuthException(
+        'Your HOTICE session expired. Sign in again to sync preferences.',
+        statusCode: 401,
+      );
+    }
+    _checkSuccess(response, 'Sign in again to sync your account preferences.');
+    final body = _decodeObject(response);
+    return _validatedPreferences(body['preferences']);
+  }
+
+  /// Replace the complete supported preference set for the signed-in account.
+  Future<Map<String, dynamic>> saveAccountPreferences({
+    required String themeMode,
+    required String accent,
+    required String font,
+  }) async {
+    final request = <String, String>{
+      'themeMode': themeMode,
+      'accent': accent,
+      'font': font,
+    };
+    _validatePreferenceValues(request);
+    final token = await _tokenStore.read();
+    if (token == null) {
+      throw const BackendAuthException(
+        'Sign in again to sync your account preferences.',
+        statusCode: 401,
+      );
+    }
+    final response = await _send(
+      'PUT',
+      'v1/me/preferences',
+      token: token,
+      jsonBody: request,
+    );
+    if (response.statusCode == 401) {
+      await _tokenStore.delete();
+      throw const BackendAuthException(
+        'Your HOTICE session expired. Sign in again to sync preferences.',
+        statusCode: 401,
+      );
+    }
+    _checkSuccess(response, 'Could not sync your account preferences.');
+    final body = _decodeObject(response);
+    final preferences = _validatedPreferences(body['preferences']);
+    if (preferences['themeMode'] != themeMode ||
+        preferences['accent'] != accent || preferences['font'] != font) {
+      throw const BackendAuthException(
+        'The HOTICE server did not confirm your latest preferences.',
+      );
+    }
+    return preferences;
+  }
+
+  Map<String, dynamic> _validatedPreferences(Object? value) {
+    if (value is! Map<String, dynamic>) {
+      throw const BackendAuthException(
+        'The HOTICE server returned invalid account preferences.',
+      );
+    }
+    final preferences = <String, String>{
+      'themeMode': value['themeMode'] is String ? value['themeMode'] as String : '',
+      'accent': value['accent'] is String ? value['accent'] as String : '',
+      'font': value['font'] is String ? value['font'] as String : '',
+    };
+    _validatePreferenceValues(preferences);
+    final result = <String, dynamic>{...preferences};
+    if (value.containsKey('updatedAt')) {
+      if (value['updatedAt'] is! String) {
+        throw const BackendAuthException(
+          'The HOTICE server returned invalid account preferences.',
+        );
+      }
+      result['updatedAt'] = value['updatedAt'];
+    }
+    return result;
+  }
+
+  void _validatePreferenceValues(Map<String, String> values) {
+    const allowed = {
+      'themeMode': {'system', 'light', 'dark'},
+      'accent': {'electric', 'ocean', 'ember', 'glacier', 'moss'},
+      'font': {'modern', 'editorial', 'technical'},
+    };
+    for (final field in allowed.keys) {
+      if (!allowed[field]!.contains(values[field])) {
+        throw const BackendAuthException(
+          'One or more HOTICE account preferences are unsupported.',
+        );
+      }
+    }
+  }
+
+  /// Delete the current server account, then erase the revoked local token.
+  /// Transport errors keep the token so the next authenticated check can
+  /// determine whether the server committed a request whose reply was lost.
+  Future<Map<String, dynamic>> deleteAccount({
+    required String password,
+    required String confirmation,
+  }) async {
+    if (confirmation != 'DELETE' || password.isEmpty || password.length > 256) {
+      throw const BackendAuthException(
+        'Type DELETE exactly and enter your current password.',
+        statusCode: 422,
+      );
+    }
+    final token = await _tokenStore.read();
+    if (token == null) {
+      throw const BackendAuthException('Sign in again before deleting your account.', statusCode: 401);
+    }
+    final response = await _send(
+      'DELETE',
+      'v1/me',
+      token: token,
+      jsonBody: {'confirmation': confirmation, 'password': password},
+    );
+    if (response.statusCode == 401) {
+      await _tokenStore.delete();
+      throw const BackendAuthException(
+        'Your HOTICE session expired. Sign in again before deleting your account.',
+        statusCode: 401,
+      );
+    }
+    if (response.statusCode == 403) {
+      throw const BackendAuthException(
+        'The current password was not accepted. Your account is unchanged.',
+        statusCode: 403,
+      );
+    }
+    if (response.statusCode == 422) {
+      throw const BackendAuthException(
+        'Type DELETE exactly and enter your current password.',
+        statusCode: 422,
+      );
+    }
+    _checkSuccess(response, 'Could not securely confirm account deletion.');
+    final data = _decodeObject(response);
+    if (data['deleted'] != true || data['accountDataRemoved'] != true ||
+        data['queuedMediaFiles'] is! int) {
+      throw const BackendAuthException('The HOTICE server returned an invalid deletion response.');
+    }
+    await _tokenStore.delete();
+    return data;
+  }
+
+  Future<BackendUser> _loadUser(String token) async {
+    final response = await _send('GET', 'v1/me', token: token);
+    _checkSuccess(response, 'Your HOTICE session is no longer valid.');
+    final body = _decodeObject(response);
+    final user = body['user'];
+    if (user is! Map<String, dynamic> ||
+        user['id'] is! String ||
+        user['email'] is! String) {
+      throw const BackendAuthException('The HOTICE server returned an invalid account.');
+    }
+    return BackendUser(
+      id: user['id'] as String,
+      email: (user['email'] as String).trim().toLowerCase(),
+    );
+  }
+
+  Future<void> _revokeBestEffort(String token) async {
+    try {
+      await _send('POST', 'v1/auth/logout', token: token);
+    } catch (_) {
+      // Never replace the original verification/storage error.
+    }
+  }
+
+  Future<http.Response> _send(
+    String method,
+    String path, {
+    String? token,
+    Map<String, Object?>? jsonBody,
+  }) async {
+    final request = http.Request(method, _endpoint(path))
+      ..followRedirects = false
+      ..headers['Accept'] = 'application/json';
+    if (jsonBody != null) {
+      request.headers['Content-Type'] = 'application/json';
+      request.body = jsonEncode(jsonBody);
+    }
+    if (token != null) request.headers['Authorization'] = 'Bearer $token';
+    try {
+      final streamed = await _client.send(request).timeout(const Duration(seconds: 20));
+      return await http.Response.fromStream(streamed).timeout(const Duration(seconds: 20));
+    } on Exception {
+      throw const BackendAuthException('Could not reach the HOTICE server.');
+    }
+  }
+
+  void _checkSuccess(http.Response response, String failureMessage) {
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw BackendAuthException(
+        response.statusCode == 401 || response.statusCode == 403
+            ? failureMessage
+            : 'The HOTICE server is unavailable. Try again later.',
+        statusCode: response.statusCode,
+      );
+    }
+  }
+
+  Map<String, dynamic> _decodeObject(http.Response response) {
+    try {
+      final value = jsonDecode(response.body);
+      if (value is Map<String, dynamic>) return value;
+    } on FormatException {
+      // Use one safe error below; never surface raw server response text.
+    }
+    throw const BackendAuthException('The HOTICE server returned an invalid response.');
+  }
+
+  void close() => _client.close();
+}
+).hasMatch(token)) {
+      if (token != null) {
+        try {
+          await _tokenStore.delete();
+        } on Exception {
+          // Fail closed. A failed cleanup must not block guest/local projects.
+        }
+      }
       return null;
     }
     try {
       return await _loadUser(token);
     } on BackendAuthException catch (error) {
-      if (error.statusCode == 401) await _tokenStore.delete();
+      if (error.statusCode == 401) {
+        try {
+          await _tokenStore.delete();
+        } on Exception {
+          // Revoked credentials remain unusable, even if deletion is blocked.
+        }
+      }
+      return null;
+    } on Exception {
+      // Platform/transport errors never establish an authenticated session.
       return null;
     }
   }
