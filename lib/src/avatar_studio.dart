@@ -242,6 +242,10 @@ class _AvatarsPageState extends State<AvatarsPage> {
         }
         if (widget.archive != null) {
           await widget.archive!.flush();
+          if (workspace != widget.store.selectedWorkspaceId) {
+            throw const AvatarReferenceBackupException(
+                'The active account changed during restore.');
+          }
           if (widget.archive!.writeState != LocalArchiveWriteState.saved) {
             throw const AvatarReferenceBackupException(
                 'The actor was encrypted but its local project archive could not be saved. Check device storage and try again.');
