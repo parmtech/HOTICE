@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import 'src/account_api.dart';
 import 'src/state.dart';
 import 'src/design.dart';
@@ -25,30 +26,35 @@ Future<void> _startHotIce() async {
     runApp(HotIceApp(initialStore: store));
   } catch (_) {
     store.dispose();
-    runApp(const MaterialApp(
-      home: Scaffold(
-        body: SafeArea(
-          child: Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'HOTICE could not safely open your encrypted projects. '
-                    'Your saved files were not erased or replaced. '
-                    'Check your device storage or recover the device key or a backup.',
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
-                  FilledButton(onPressed: _startHotIce, child: const Text('Try again')),
-                ],
+    runApp(
+      const MaterialApp(
+        home: Scaffold(
+          body: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'HOTICE could not safely open your encrypted projects. '
+                      'Your saved files were not erased or replaced. '
+                      'Check your device storage or recover the device key or a backup.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: _startHotIce,
+                      child: const Text('Try again'),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
       ),
-    ));
+    );
   }
 }
 
@@ -157,11 +163,13 @@ class _HotIceAppState extends State<HotIceApp> {
       debugShowCheckedModeBanner: false,
       themeMode: store.themeMode,
       theme: HotIceDesign.theme(
-        Brightness.light, store.accent.color,
+        Brightness.light,
+        store.accent.color,
         fontFamily: store.font.family,
       ),
       darkTheme: HotIceDesign.theme(
-        Brightness.dark, store.accent.color,
+        Brightness.dark,
+        store.accent.color,
         fontFamily: store.font.family,
       ),
       home: AnimatedBuilder(
@@ -169,22 +177,24 @@ class _HotIceAppState extends State<HotIceApp> {
         builder: (context, _) => !accountSessionChecked
             ? const Scaffold(body: Center(child: CircularProgressIndicator()))
             : store.signedIn
-            ? StudioShell(
-                key: ValueKey(store.selectedAccount),
-                store: store,
-                authenticatedEmail: accountUser?.email,
-                onSignOut: _signOut,
-              )
-            : showLogin
-                ? LoginPage(
-                    onBack: () => setState(() => showLogin = false),
+                ? StudioShell(
+                    key: ValueKey(store.selectedAccount),
+                    store: store,
                     accountApi: accountApi,
-                    onAuthenticated: _onAuthenticated,
+                    authenticatedEmail: accountUser?.email,
+                    onSignOut: _signOut,
                   )
-                : WelcomePage(
-                    onStart: () => setState(() => showLogin = true),
-                    onDemoStart: () => store.signInDemo('creator@hotice.demo'),
-                  ),
+                : showLogin
+                    ? LoginPage(
+                        onBack: () => setState(() => showLogin = false),
+                        accountApi: accountApi,
+                        onAuthenticated: _onAuthenticated,
+                      )
+                    : WelcomePage(
+                        onStart: () => setState(() => showLogin = true),
+                        onDemoStart: () =>
+                            store.signInDemo('creator@hotice.demo'),
+                      ),
       ),
     );
   }
@@ -192,9 +202,16 @@ class _HotIceAppState extends State<HotIceApp> {
 
 class StudioShell extends StatefulWidget {
   final HotIceStore store;
+  final AccountApi? accountApi;
   final String? authenticatedEmail;
   final Future<void> Function()? onSignOut;
-  const StudioShell({super.key, required this.store, this.authenticatedEmail, this.onSignOut});
+  const StudioShell({
+    super.key,
+    required this.store,
+    this.accountApi,
+    this.authenticatedEmail,
+    this.onSignOut,
+  });
 
   @override
   State<StudioShell> createState() => _StudioShellState();
@@ -230,7 +247,6 @@ class _StudioShellState extends State<StudioShell> {
     final store = widget.store;
     final wide = MediaQuery.sizeOf(context).width >= 850;
 
-
     return Scaffold(
       body: SafeArea(
         child: Row(
@@ -255,8 +271,9 @@ class _StudioShellState extends State<StudioShell> {
                           ),
                           child: ListTile(
                             selected: selected == option.index,
-                            selectedTileColor:
-                                store.accent.color.withValues(alpha: .13),
+                            selectedTileColor: store.accent.color.withValues(
+                              alpha: .13,
+                            ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
                             ),
@@ -304,8 +321,10 @@ class _StudioShellState extends State<StudioShell> {
                         if (wide)
                           Padding(
                             padding: const EdgeInsets.only(right: 10),
-                            child: Text('TEST $hoticeAppVersion · $hoticeBuildId',
-                              style: const TextStyle(fontSize: 10)),
+                            child: Text(
+                              'TEST $hoticeAppVersion · $hoticeBuildId',
+                              style: const TextStyle(fontSize: 10),
+                            ),
                           ),
                         if (wide || MediaQuery.sizeOf(context).width >= 640)
                           TextButton.icon(
@@ -362,6 +381,7 @@ class _StudioShellState extends State<StudioShell> {
                         SettingsPage(store: store),
                         AccountsPage(
                           store: store,
+                          accountApi: widget.accountApi,
                           authenticatedEmail: widget.authenticatedEmail,
                           onSignOut: widget.onSignOut,
                         ),
@@ -395,17 +415,26 @@ class _StudioShellState extends State<StudioShell> {
                           ListTile(
                             leading: const Icon(Icons.auto_stories_rounded),
                             title: const Text('Inspiration Library'),
-                            onTap: () { Navigator.pop(ctx); navigate(6); },
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              navigate(6);
+                            },
                           ),
                           ListTile(
                             leading: const Icon(Icons.tune_rounded),
                             title: const Text('Settings & appearance'),
-                            onTap: () { Navigator.pop(ctx); navigate(4); },
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              navigate(4);
+                            },
                           ),
                           ListTile(
                             leading: const Icon(Icons.people_outline_rounded),
                             title: const Text('Accounts'),
-                            onTap: () { Navigator.pop(ctx); navigate(5); },
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              navigate(5);
+                            },
                           ),
                           const SizedBox(height: 16),
                         ],
