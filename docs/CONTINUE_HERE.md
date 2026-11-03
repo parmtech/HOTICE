@@ -6,6 +6,10 @@
 **Scope:** Integrate the consented 2D capture vault and smart reference planner with PR #79’s encrypted local project archive.
 **Master product contract:** [HOTICE_HANDOFF.md](https://github.com/parmtech/HOTICE/blob/docs/ready-to-publish-release-gates/HOTICE_HANDOFF.md), currently proposed in open PR #34. Its section W sets the dependency-safe packets; its section X defines release gates.
 
+**Active continuation branch (4 November):** worktree branch `feat/avatar-reference-gallery`, draft child PR [#89](https://github.com/parmtech/HOTICE/pull/89) based on PR #88. Current code head `4719c25da1d2ea1f43935b2dee160eb6dd92e064` adds encrypted local previews, confirmed in-profile reference removal, and cloud snapshot filtering for selected local reference IDs. Exact-head workflow [41735147590](https://github.com/parmtech/HOTICE/actions/runs/41735147590): dependency inventory, static web/catalog dry run, Flutter analysis/tests and PHP payload policy checks passed; Android packaging/emulator jobs were still running at last observation. Check current job state before claiming all CI green. The worktree was clean and `git diff --check` passed at that head. No PR reviews had been submitted.
+
+Continue from this branch without discarding or rebasing other worktrees. Read the master contract in PR #34 before starting another packet; preserve the #32/#79 source work and #86/#87/#88/#89 stack. This branch has no provider calls or photo uploads. Physical-device vault/lifecycle and accessibility checks remain required. Product release stays **NOT READY TO PUBLISH**.
+
 Read the NEW authoritative contracts before proceeding:
 - [AI Model Compatibility](API_MODEL_COMPATIBILITY.md): official provider docs, retired models, strict role/duration/ratio rules, security, and implementation gaps.
 - [Smart Avatar & Reference Engine](SMART_REFERENCE_ENGINE.md): encrypted face-photo storage, privacy and 3D/reconstruction gaps.

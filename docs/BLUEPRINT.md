@@ -1,4 +1,8 @@
-# HOTICE — Product Blueprint (Initial Specification)
+# HOTICE — Product Blueprint (Historical Initial Specification)
+
+> **Current product contract:** This file records the initial UI prototype scope and is retained for history. It is not the authoritative implementation or release handoff. Follow the [HOTICE Master Product Blueprint and AI Handoff](https://github.com/parmtech/HOTICE/blob/docs/ready-to-publish-release-gates/HOTICE_HANDOFF.md) (proposed in PR #34), [READY_TO_PUBLISH.md](READY_TO_PUBLISH.md), and GitHub [release gate issue #33](https://github.com/parmtech/HOTICE/issues/33). Re-check current branch heads, open PR dependencies, CI and local work before acting. Release status remains **NOT READY TO PUBLISH** until evidence passes every gate.
+
+For feature-specific contracts, use [API_MODEL_COMPATIBILITY.md](API_MODEL_COMPATIBILITY.md), [SMART_REFERENCE_ENGINE.md](SMART_REFERENCE_ENGINE.md), [NAMECHEAP_CLOUD_BACKEND.md](NAMECHEAP_CLOUD_BACKEND.md), and [INSPIRATION_LIBRARY.md](INSPIRATION_LIBRARY.md). The specification below describes the original prototype and must not be read as evidence that those journeys are production-complete.
 
 ## 1. Vision
 A polished, premium, cross-platform AI filmmaking studio combining projects, scenes, generation workflows, characters/avatars, multiple AI video providers, credit-based payments, and account management. This is the target product, not a claim that every feature is integrated.
