@@ -30,6 +30,7 @@ const contentTypes = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webm': 'video/webm',
 };
 
 const web = http.createServer((req, res) => {
@@ -66,8 +67,10 @@ async function main() {
     web.listen(port, '127.0.0.1', () => { web.removeListener('error', reject); resolve(); });
   });
   const browser = await chromium.launch({headless: true});
+  let context;
   try {
-    const page = await browser.newPage();
+    context = await browser.newContext();
+    const page = await context.newPage();
     page.setDefaultTimeout(10000);
     const errors = [];
     const apiRequests = [];
@@ -87,7 +90,10 @@ async function main() {
           headers: response.headers(), status: response.status()});
       }
     });
-    await page.goto(`http://127.0.0.1:${port}`, {waitUntil: 'networkidle'});
+    await page.goto(`http://127.0.0.1:${port}`, {waitUntil: 'load'});
+    await page.locator('#libraryCards .library-card').first().waitFor();
+    assert.equal(await page.locator('#libraryCards video.library-preview').count(), 6,
+      'The shared catalog must expose only six allowlisted local previews.');
     await page.locator('#scenePrompt').fill('A blue sailboat glides across a calm lake at sunrise.');
     await page.locator('#addSample').click();
     await page.locator('#addSample').click();
@@ -197,10 +203,12 @@ async function main() {
     const verificationBody = deliverMail();
     const verificationToken = verificationBody.match(/#token=([a-f0-9]{64})/i)?.[1];
     assert(verificationToken, 'CI mail capture must contain the one-time verification URL.');
-    await page.goto(`http://127.0.0.1:${port}/?ciFlow=verify#token=${verificationToken}`, {waitUntil: 'networkidle'});
-    const verificationResponse = apiResponses.filter((response) => response.method === 'POST' && response.path === '/v1/auth/verify-email').at(-1);
-    assert.equal(verificationResponse?.status, 200,
-      `Browser email verification API response must succeed: ${JSON.stringify(verificationResponse)}`);
+    const verificationResponsePromise = page.waitForResponse((response) =>
+      response.request().method() === 'POST' && new URL(response.url()).pathname === '/v1/auth/verify-email');
+    await page.goto(`http://127.0.0.1:${port}/?ciFlow=verify#token=${verificationToken}`, {waitUntil: 'load'});
+    const verificationResponse = await verificationResponsePromise;
+    assert.equal(verificationResponse.status(), 200,
+      `Browser email verification API response must succeed: ${await verificationResponse.text()}`);
     await page.getByText('Email verified. You can now sign in securely.').waitFor();
     assert.equal(await page.evaluate(() => document.activeElement?.id), 'accountEmail',
       'Email verification must return focus to sign-in.');
@@ -224,7 +232,7 @@ async function main() {
     const resetBody = deliverMail();
     const resetToken = resetBody.match(/#reset=([a-f0-9]{64})/i)?.[1];
     assert(resetToken, 'CI mail capture must contain the one-time password reset URL.');
-    await page.goto(`http://127.0.0.1:${port}/?ciFlow=reset#reset=${resetToken}`, {waitUntil: 'networkidle'});
+    await page.goto(`http://127.0.0.1:${port}/?ciFlow=reset#reset=${resetToken}`, {waitUntil: 'load'});
     assert.equal(await page.evaluate(() => document.activeElement?.id), 'resetNewPassword',
       'A valid reset link must focus the new-password field.');
     const resetPasswordToggle = page.locator('[data-password-toggle="resetNewPassword"]');
@@ -261,6 +269,7 @@ async function main() {
       'browser password reset, session revocation and old-password rejection',
     ], apiOrigin, realProviderCalls: 0}));
   } finally {
+    await context?.close();
     await browser.close();
     await new Promise((resolve) => web.close(resolve));
   }

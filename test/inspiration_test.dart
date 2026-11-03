@@ -21,10 +21,12 @@ void main() {
       expect(item.licenseEvidence, isNotEmpty);
       expect(item.attributionRequired, isTrue);
       expect(item.attributionText, contains('HOTICE'));
-      expect(item.embedAllowed, isFalse);
+      expect(item.embedAllowed, isTrue);
       expect(item.lastVerified, '2026-10-26');
-      expect(item.previewUrl, isNull,
-          reason: 'Seed media must not masquerade as cleared videos.');
+      expect(item.previewUrl, '/assets/examples/${item.id}.webm',
+          reason: 'Motion studies must remain first-party local assets.');
+      expect(item.mediaLicense, contains('HOTICE first-party procedural'));
+      expect(item.attributionText, contains('not AI output'));
     }
   });
 
@@ -78,6 +80,19 @@ void main() {
     expect(() => InspirationCatalog.decode(
       '{"schemaVersion":1,"templates":[${_json(unlicensedPreview)}]}',
     ), throwsFormatException);
+    final remoteOriginal = {
+      ...approved,
+      'previewUrl': 'https://example.test/video.mp4',
+      'provenance': <String, Object?>{
+        ...(approved['provenance'] as Map<String, Object?>),
+        'mediaLicense': 'HOTICE first-party procedural motion study; bundled locally; no third-party media; cleared for HOTICE product preview',
+        'embedAllowed': true,
+        'attributionText': 'HOTICE original motion study · concept visual, not AI output',
+      },
+    };
+    expect(() => InspirationCatalog.decode(
+      '{"schemaVersion":1,"templates":[${_json(remoteOriginal)}]}',
+    ), throwsFormatException);
   });
 
   test('Use this prompt replaces actor slots with unique scene roles', () async {
@@ -122,7 +137,7 @@ void main() {
     }
     final use = find.text('Use this prompt').first;
     expect(use, findsOneWidget);
-    expect(find.textContaining('HOTICE original prompt · no video attached'),
+    expect(find.textContaining('HOTICE original motion study · concept visual, not AI output'),
         findsWidgets);
     await tester.ensureVisible(use);
     await tester.tap(use);

@@ -137,6 +137,18 @@
       const cat = make('small', 'mini', item.category.toUpperCase());
       const title = make('h3', '', item.title);
       const description = make('p', '', item.prompt);
+      const preview = make('video', 'library-preview');
+      preview.controls = true;
+      preview.muted = true;
+      preview.loop = true;
+      preview.playsInline = true;
+      preview.preload = 'metadata';
+      preview.setAttribute('aria-label', item.title + ' procedural motion study; concept visual, not AI output');
+      const source = document.createElement('source');
+      source.src = item.previewUrl;
+      source.type = 'video/webm';
+      preview.append(source);
+      const previewNote = make('small', 'preview-note', 'HOTICE motion study · concept visual · not AI output');
       const footer = make('p', 'editor-note',
         'Illustrative model: ' + item.modelId.replaceAll('_', ' ') +
         ' · Actor roles: ' + item.actorSlots.length +
@@ -157,7 +169,7 @@
         get('studio').scrollIntoView({behavior: 'smooth', block: 'start'});
         get('scenePrompt').focus({preventScroll: true});
       });
-      card.append(cat, title, description, footer, button);
+      card.append(cat, title, preview, previewNote, description, footer, button);
       gallery.append(card);
     }
   }
@@ -200,10 +212,11 @@
         typeof item.provenance.lastVerified === 'string' &&
         (!item.provenance.sourceUrl ||
           item.provenance.sourceUrl.startsWith('https://')) &&
-        (item.previewUrl === null ||
-          (item.origin === 'licensed' && item.provenance.embedAllowed &&
-            typeof item.provenance.mediaLicense === 'string' &&
-            Boolean(item.provenance.sourceUrl))) &&
+        typeof item.previewUrl === 'string' &&
+        item.origin === 'hotice_original' &&
+        /^\/assets\/examples\/[a-z0-9-]+\.webm$/.test(item.previewUrl) &&
+        item.provenance.mediaLicense === 'HOTICE first-party procedural motion study; bundled locally; no third-party media; cleared for HOTICE product preview' &&
+        item.provenance.embedAllowed === true &&
         Object.hasOwn(modelLimits, item.modelId) &&
         Array.isArray(item.actorSlots));
       const categories = [...new Set(catalog.map((item) => item.category))];

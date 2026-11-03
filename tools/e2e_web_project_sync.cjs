@@ -140,6 +140,7 @@ const contentTypes = {
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.webm': 'video/webm',
 };
 
 const web = http.createServer((req, res) => {
@@ -207,7 +208,27 @@ async function main() {
     page.setDefaultTimeout(8000);
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
-    await page.goto(pageOrigin, {waitUntil: 'networkidle'});
+    await page.goto(pageOrigin, {waitUntil: 'load'});
+    await page.locator('#libraryCards .library-card').first().waitFor();
+
+    // The inspiration library uses first-party local concept loops, never provider output.
+    assert.equal(await page.locator('#libraryCards .library-card').count(), 6);
+    const previews = page.locator('#libraryCards video.library-preview');
+    assert.equal(await previews.count(), 6);
+    for (let index = 0; index < await previews.count(); index++) {
+      const video = previews.nth(index);
+      assert.equal(await video.evaluate((element) => element.controls), true);
+      assert.equal(await video.evaluate((element) => element.muted), true);
+      assert.equal(await video.getAttribute('autoplay'), null, 'examples must not autoplay');
+      const src = await video.locator('source').getAttribute('src');
+      assert.match(src, /^\/assets\/examples\/[a-z0-9-]+\.webm$/);
+      const response = await page.request.get(pageOrigin + src);
+      assert.equal(response.status(), 200, 'local example video must be served');
+      assert.match(response.headers()['content-type'], /video\/webm/);
+    }
+    await previews.first().evaluate((video) => video.play());
+    await page.waitForFunction(() => document.querySelector('#libraryCards video')?.currentTime > 0.25);
+    assert.match(await page.locator('#libraryCards').innerText(), /concept visual · not AI output/);
 
     // Export is a real, bounded local recording. This synthetic clip never reaches the mock API.
     assert.equal(await page.locator('#exportVideo').isDisabled(), true,
@@ -309,7 +330,7 @@ async function main() {
     await page.locator('#saveLocalProject').click();
     await page.waitForFunction(() => document.querySelector('#projectStatus').textContent.includes('Project saved on this device'));
     await page.locator('#localProjects .project-card').getByRole('button', {name: 'Open'}).waitFor();
-    await page.reload({waitUntil: 'networkidle'});
+    await page.reload({waitUntil: 'load'});
     await page.locator('#localProjects .project-card').getByRole('button', {name: 'Open'}).click();
     await page.waitForFunction(() => document.querySelector('#projectStatus').textContent.includes('Opened locally'));
     assert.match(await page.locator('#scenePrompt').inputValue(), /red paper kite/);
@@ -390,7 +411,7 @@ async function main() {
       const autosaveStatus = await page.locator('#projectStatus').textContent();
       throw new Error(error.message + ' · autosave status: ' + autosaveStatus);
     }
-    await page.reload({waitUntil: 'networkidle'});
+    await page.reload({waitUntil: 'load'});
     await page.locator('#localProjects .project-card').getByRole('button', {name: 'Open'}).click();
     try {
       await page.waitForFunction(() => document.querySelector('#projectStatus')?.textContent
@@ -441,7 +462,7 @@ async function main() {
       db.close();
       return value;
     }), 'data:image/jpeg;base64,synthetic');
-    await page.reload({waitUntil: 'networkidle'});
+    await page.reload({waitUntil: 'load'});
     await page.locator('#accountEmail').fill('browser-test@example.test');
     await page.locator('#accountPassword').fill('synthetic-only-password');
     await page.locator('#accountSignIn').click();
@@ -477,7 +498,7 @@ async function main() {
     assert.equal(projectRequests.filter((request) => request.method === 'PUT').length, 0, 'local media is rejected before upload');
 
     await updateLocalDocument(page, 'remove-media');
-    await page.reload({waitUntil: 'networkidle'});
+    await page.reload({waitUntil: 'load'});
     await page.locator('#accountEmail').fill('browser-test@example.test');
     await page.locator('#accountPassword').fill('synthetic-only-password');
     await page.locator('#accountSignIn').click();
@@ -511,7 +532,7 @@ async function main() {
     try {
       const secondPage = await secondContext.newPage();
       secondPage.setDefaultTimeout(8000);
-      await secondPage.goto(pageOrigin, {waitUntil: 'networkidle'});
+      await secondPage.goto(pageOrigin, {waitUntil: 'load'});
       await secondPage.locator('#accountEmail').fill('browser-test@example.test');
       await secondPage.locator('#accountPassword').fill('synthetic-only-password');
       await secondPage.locator('#accountSignIn').click();

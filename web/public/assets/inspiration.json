@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "collection": "HOTICE Original Inspiration Templates",
-  "notice": "All example prompts here are original HOTICE editorial text. No external creator videos or exact third-party prompts are bundled. Model IDs reference illustrative demo profiles, not live AI integrations.",
+  "notice": "HOTICE original prompts and locally bundled procedural motion studies. Motion studies are illustrative concept visuals, not AI model outputs; model IDs are demo profiles and no provider rendering is connected.",
   "templates": [
     {
       "id": "night-drive",
@@ -17,7 +17,7 @@
       "actorSlots": [
         "Actor1"
       ],
-      "previewUrl": null,
+      "previewUrl": "/assets/examples/night-drive.webm",
       "origin": "hotice_original",
       "promptStatus": "editorial_original",
       "publicationStatus": "approved",
@@ -28,9 +28,9 @@
         "promptLicense": "HOTICE prompt; remix within the HOTICE composer",
         "licenseEvidence": "First-party editorial text; no third-party prompt or media copied",
         "attributionRequired": true,
-        "attributionText": "HOTICE original prompt · no video attached",
-        "mediaLicense": null,
-        "embedAllowed": false,
+        "attributionText": "HOTICE original motion study · concept visual, not AI output",
+        "mediaLicense": "HOTICE first-party procedural motion study; bundled locally; no third-party media; cleared for HOTICE product preview",
+        "embedAllowed": true,
         "lastVerified": "2026-10-26"
       }
     },
@@ -49,7 +49,7 @@
         "Actor1",
         "Actor2"
       ],
-      "previewUrl": null,
+      "previewUrl": "/assets/examples/forest-chase.webm",
       "origin": "hotice_original",
       "promptStatus": "editorial_original",
       "publicationStatus": "approved",
@@ -60,9 +60,9 @@
         "promptLicense": "HOTICE prompt; remix within the HOTICE composer",
         "licenseEvidence": "First-party editorial text; no third-party prompt or media copied",
         "attributionRequired": true,
-        "attributionText": "HOTICE original prompt · no video attached",
-        "mediaLicense": null,
-        "embedAllowed": false,
+        "attributionText": "HOTICE original motion study · concept visual, not AI output",
+        "mediaLicense": "HOTICE first-party procedural motion study; bundled locally; no third-party media; cleared for HOTICE product preview",
+        "embedAllowed": true,
         "lastVerified": "2026-10-26"
       }
     },
@@ -80,7 +80,7 @@
       "actorSlots": [
         "Actor1"
       ],
-      "previewUrl": null,
+      "previewUrl": "/assets/examples/rooftop-music.webm",
       "origin": "hotice_original",
       "promptStatus": "editorial_original",
       "publicationStatus": "approved",
@@ -91,9 +91,9 @@
         "promptLicense": "HOTICE prompt; remix within the HOTICE composer",
         "licenseEvidence": "First-party editorial text; no third-party prompt or media copied",
         "attributionRequired": true,
-        "attributionText": "HOTICE original prompt · no video attached",
-        "mediaLicense": null,
-        "embedAllowed": false,
+        "attributionText": "HOTICE original motion study · concept visual, not AI output",
+        "mediaLicense": "HOTICE first-party procedural motion study; bundled locally; no third-party media; cleared for HOTICE product preview",
+        "embedAllowed": true,
         "lastVerified": "2026-10-26"
       }
     },
@@ -111,7 +111,7 @@
       "actorSlots": [
         "Actor1"
       ],
-      "previewUrl": null,
+      "previewUrl": "/assets/examples/fantasy-portal.webm",
       "origin": "hotice_original",
       "promptStatus": "editorial_original",
       "publicationStatus": "approved",
@@ -122,9 +122,9 @@
         "promptLicense": "HOTICE prompt; remix within the HOTICE composer",
         "licenseEvidence": "First-party editorial text; no third-party prompt or media copied",
         "attributionRequired": true,
-        "attributionText": "HOTICE original prompt · no video attached",
-        "mediaLicense": null,
-        "embedAllowed": false,
+        "attributionText": "HOTICE original motion study · concept visual, not AI output",
+        "mediaLicense": "HOTICE first-party procedural motion study; bundled locally; no third-party media; cleared for HOTICE product preview",
+        "embedAllowed": true,
         "lastVerified": "2026-10-26"
       }
     },
@@ -140,7 +140,7 @@
       "modelId": "storyboard_demo",
       "prompt": "A luxury ceramic perfume bottle rests on a sculpted pedestal in a dark minimalist studio. A precise slow orbit reveals polished surfaces as a soft beam of light moves across the bottle. Clean highlights, natural shadows and restrained editorial movement.",
       "actorSlots": [],
-      "previewUrl": null,
+      "previewUrl": "/assets/examples/product-orbit.webm",
       "origin": "hotice_original",
       "promptStatus": "editorial_original",
       "publicationStatus": "approved",
@@ -151,9 +151,9 @@
         "promptLicense": "HOTICE prompt; remix within the HOTICE composer",
         "licenseEvidence": "First-party editorial text; no third-party prompt or media copied",
         "attributionRequired": true,
-        "attributionText": "HOTICE original prompt · no video attached",
-        "mediaLicense": null,
-        "embedAllowed": false,
+        "attributionText": "HOTICE original motion study · concept visual, not AI output",
+        "mediaLicense": "HOTICE first-party procedural motion study; bundled locally; no third-party media; cleared for HOTICE product preview",
+        "embedAllowed": true,
         "lastVerified": "2026-10-26"
       }
     },
@@ -171,7 +171,7 @@
       "actorSlots": [
         "Actor1"
       ],
-      "previewUrl": null,
+      "previewUrl": "/assets/examples/clay-character.webm",
       "origin": "hotice_original",
       "promptStatus": "editorial_original",
       "publicationStatus": "approved",
@@ -182,9 +182,9 @@
         "promptLicense": "HOTICE prompt; remix within the HOTICE composer",
         "licenseEvidence": "First-party editorial text; no third-party prompt or media copied",
         "attributionRequired": true,
-        "attributionText": "HOTICE original prompt · no video attached",
-        "mediaLicense": null,
-        "embedAllowed": false,
+        "attributionText": "HOTICE original motion study · concept visual, not AI output",
+        "mediaLicense": "HOTICE first-party procedural motion study; bundled locally; no third-party media; cleared for HOTICE product preview",
+        "embedAllowed": true,
         "lastVerified": "2026-10-26"
       }
     }

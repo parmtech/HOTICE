@@ -92,10 +92,15 @@ class InspirationTemplate {
         entry.lastVerified.trim().isEmpty ||
         (entry.sourceUrl != null && !entry.sourceUrl!.startsWith('https://')) ||
         (entry.previewUrl != null &&
-            (entry.mediaLicense == null ||
-                entry.mediaLicense!.trim().isEmpty ||
+            (json['origin'] != 'hotice_original' ||
+                !RegExp(r'^/assets/examples/[a-z0-9-]+\.webm$')
+                    .hasMatch(entry.previewUrl!) ||
+                entry.mediaLicense !=
+                    'HOTICE first-party procedural motion study; bundled locally; no third-party media; cleared for HOTICE product preview' ||
+                entry.attributionText !=
+                    'HOTICE original motion study · concept visual, not AI output' ||
                 !entry.embedAllowed ||
-                entry.sourceUrl == null)) ||
+                entry.sourceUrl != null)) ||
         !demoVideoModels.any((m) => m.id == entry.modelId)) {
       throw const FormatException('Invalid HOTICE inspiration template.');
     }
