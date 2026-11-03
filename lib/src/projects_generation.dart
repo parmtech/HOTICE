@@ -5,6 +5,21 @@ import 'avatar_identity.dart';
 import 'design.dart';
 import 'dialogs.dart';
 
+const _promptStarters = <(String, String)>[
+  (
+    'Neon rain',
+    'A lone jazz musician plays beneath a glowing blue awning on a rain-soaked city street, slow camera push-in, reflections shimmer across the pavement, cinematic night lighting.',
+  ),
+  (
+    'First light',
+    'A small sailboat glides through a quiet alpine lake at sunrise, mist parts around the bow, wide aerial establishing shot that gently descends toward the water, warm natural light.',
+  ),
+  (
+    'The reunion',
+    'Two old friends recognize each other across a crowded train platform, the background falls softly out of focus as they smile, intimate slow-motion medium shot, gentle afternoon light.',
+  ),
+];
+
 class ProjectsPage extends StatelessWidget {
   final HotIceStore store;
   final ValueChanged<String> onOpen;
@@ -407,6 +422,34 @@ class _GenerationPageState extends State<GenerationPage> {
               alignLabelWithHint: true,
               hintText: 'A cinematic night scene, dramatic lighting...',
             ),
+          ),
+          const SizedBox(height: 12),
+          Text('Prompt starters',
+              style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 4),
+          const Text(
+            'Choose an original text example, then edit it to fit your scene.',
+            style: TextStyle(fontSize: 12),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              for (final (label, example) in _promptStarters)
+                ActionChip(
+                  key: ValueKey('prompt-starter-$label'),
+                  tooltip: 'Use the $label prompt starter',
+                  avatar: const Icon(Icons.auto_awesome, size: 16),
+                  label: Text(label),
+                  onPressed: () {
+                    prompt.value = TextEditingValue(
+                      text: example,
+                      selection: TextSelection.collapsed(offset: example.length),
+                    );
+                  },
+                ),
+            ],
           ),
           const SizedBox(height: 13),
           DropdownButtonFormField<String>(
