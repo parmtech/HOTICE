@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'design.dart';
 import 'inspiration_catalog.dart';
+import 'motion_study_preview.dart';
 import 'video_models.dart';
 
 /// A searchable local preview of editor-authored prompts. The public
@@ -139,19 +140,7 @@ class _InspirationPageState extends State<InspirationPage> {
                                             .titleLarge),
                                     if (item.previewUrl != null) ...[
                                       const SizedBox(height: 10),
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: AspectRatio(
-                                          aspectRatio: 16 / 9,
-                                          child: Image.asset(
-                                            'web/public${item.previewUrl!.replaceFirst(RegExp(r'\.webm$'), '.png')}',
-                                            fit: BoxFit.cover,
-                                            semanticLabel: '${item.title} motion study poster, concept visual not AI output',
-                                            errorBuilder: (context, error, stackTrace) =>
-                                                const Center(child: Text('Motion study preview unavailable')),
-                                          ),
-                                        ),
-                                      ),
+                                      MotionStudyPreviewButton(template: item),
                                       const SizedBox(height: 6),
                                       Text('HOTICE motion study · concept visual · not AI output',
                                           style: Theme.of(context)

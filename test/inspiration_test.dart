@@ -25,6 +25,8 @@ void main() {
       expect(item.lastVerified, '2026-10-26');
       expect(item.previewUrl, '/assets/examples/${item.id}.webm',
           reason: 'Motion studies must remain first-party local assets.');
+      expect(item.nativePreviewAsset,
+          'web/public/assets/examples/${item.id}.mp4');
       expect(item.mediaLicense, contains('HOTICE first-party procedural'));
       expect(item.attributionText, contains('not AI output'));
     }

@@ -1,12 +1,16 @@
 # HOTICE Inspiration Library — source, rights and release specification
 
-Updated 3 November 2026. This is a staged feature plan, not a claim of connected vendor models or launched scraping.
+Updated 4 November 2026. This is a staged feature plan, not a claim of connected vendor models or launched scraping.
 
-## Implemented first-party motion-study slice (3 November 2026)
+## Implemented first-party motion-study slice (4 November 2026)
 
-The six original prompt templates now each include a locally bundled 640×360 VP9 WebM procedural motion study. The clips are deterministic canvas animations authored for HOTICE, with an embedded **HOTICE MOTION STUDY · CONCEPT ONLY · NOT AI OUTPUT** label. Each inspiration card offers explicit native controls, muted looping playback, and no autoplay. Catalog validation accepts only the exact local `/assets/examples/<template-id>.webm` path and the first-party media provenance record; remote video is rejected. The public copy distinguishes interface concept art and procedural loops from AI model output. Model names remain illustrative demo profiles; paid/live providers are not called.
+The six original prompt templates each include a locally bundled 640×360 VP9 WebM for the browser, an H.264/yuv420p MP4 for Flutter's Android/iOS players, and a PNG poster. All are deterministic canvas animations authored for HOTICE with an embedded **HOTICE MOTION STUDY · CONCEPT ONLY · NOT AI OUTPUT** label. The Flutter card shows the poster and creates no video controller until the user opens a preview. The full-screen player starts paused and silent, provides play/pause and scrubbing, stops when dismissed, pauses when the app backgrounds, and has a retryable error state. Mobile concept clips are 24 fps, silent, and no larger than 127 KB each; posters are no larger than 145 KB each. No remote media is requested.
 
-Validation on this branch: `python tools/check_web.py`, JS syntax checks, `git diff --check`, and `node tools/e2e_web_project_sync.cjs` all pass. The browser run verified all six local video responses and playback, then exercised the synthetic export, local project/relink flow, mock account/jobs/cloud paths; `realProviderCalls: 0`. The WebM streams are VP9 640×360. This slice has not yet passed GitHub CI or merged.
+The checked-in MP4 and poster files are reproducible derivatives of the first-party WebM source. With FFmpeg available, generate an MP4 with `ffmpeg -i input.webm -an -vf "fps=24,scale=out_range=tv,format=yuv420p" -c:v libx264 -preset slow -crf 28 -pix_fmt yuv420p -color_range tv -profile:v baseline -level 3.0 -movflags +faststart output.mp4`; extract its poster with `ffmpeg -ss 1 -i input.webm -frames:v 1 -vf "scale=640:360:flags=lanczos" -compression_level 9 output.png`. `tools/check_web.py` checks the H.264 MP4 signature, PNG signature and bundle-size ceilings. Flutter unit tests check catalog path derivation. Exact codec, dimensions, frame rate and silent stream were locally verified with ffprobe.
+
+Catalog validation accepts only the exact local `/assets/examples/<template-id>.webm` path and first-party provenance. The static-site check also requires each bounded H.264 MP4 and PNG poster. The public copy distinguishes concept visuals and procedural loops from AI model output. Model names remain illustrative demo profiles; paid/live providers are not called.
+
+Validation status: `flutter analyze --no-fatal-infos` reports no errors (24 informational lints remain); local Flutter unit/widget suite passed 51 tests; static site/catalog, JS syntax and whitespace checks passed; ffprobe verified all six MP4 streams as silent H.264 640×360 24 fps `yuv420p`; the browser run previously verified all six WebM responses and playback, plus synthetic export, local project/relink, and mock account/jobs/cloud paths (`realProviderCalls: 0`). Android emulator acceptance is encoded in `integration_test/android_smoke_test.dart`; no emulator is configured in the local environment, so exact-head Android CI must pass before the slice is verified. This branch is not merged.
 
 ## Product experience
 
