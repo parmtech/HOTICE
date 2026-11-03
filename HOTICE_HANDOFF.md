@@ -750,12 +750,16 @@ Repository references: [release issue #33](https://github.com/parmtech/HOTICE/is
   failure. If the user switches accounts during restore, rollback targets the
   originally captured workspace. Passwords are not stored. This is a
   user-managed encrypted file; it is not cloud sync or 3D reconstruction.
-- PR #87 head `f9318d57a0b649bab22747bf6591a98763a33996`: local Flutter suite
+- PR #87 current head `fb42d27390c44110e7a3e6894422dd900b8d5eb2` (feature code
+  head `f9318d57a0b649bab22747bf6591a98763a33996`): local Flutter suite
   passed 131 tests; `flutter analyze --no-pub --no-fatal-infos` passed with
   informational lints only; `git diff --check` passed. Exact-head Actions run
   [41726815125](https://github.com/parmtech/HOTICE/actions/runs/41726815125)
-  has inventory/web and Flutter analysis/tests passed; APK and emulator jobs
-  are active at this update.
+  passed inventory, web/catalog, Flutter analysis/tests and APK; Android
+  emulator smoke remains active. Docs-follow-up run
+  [41727374899](https://github.com/parmtech/HOTICE/actions/runs/41727374899)
+  passed inventory, static web/catalog and Flutter analysis/tests; APK and
+  emulator smoke are still active.
   Prior source-head run [41725102766](https://github.com/parmtech/HOTICE/actions/runs/41725102766)
   passed analysis/tests, PHP policy, inventory, static web and APK; emulator
   smoke remained active unusually long. Local APK build is unavailable without
