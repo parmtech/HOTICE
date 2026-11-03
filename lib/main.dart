@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'src/account_api.dart';
 import 'src/state.dart';
 import 'src/design.dart';
 import 'src/pages.dart';
 import 'src/generation_hub.dart';
 import 'src/diagnostics.dart';
+import 'src/inspiration_catalog.dart';
+import 'src/inspiration_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,6 +23,11 @@ class HotIceApp extends StatefulWidget {
 
 class _HotIceAppState extends State<HotIceApp> {
   final HotIceStore store = HotIceStore();
+  late final AccountApi accountApi;
+  AccountUser? accountUser;
+  // Show the public welcome screen immediately while checking secure storage.
+  // A verified saved session replaces it once `/v1/me` confirms the token.
+  bool accountSessionChecked = true;
   bool showLogin = false;
 
   late ThemeMode _lastThemeMode;
@@ -29,10 +37,52 @@ class _HotIceAppState extends State<HotIceApp> {
   @override
   void initState() {
     super.initState();
+    accountApi = AccountApi();
+    _restoreAccount();
     _lastThemeMode = store.themeMode;
     _lastAccent = store.accent;
     _lastFont = store.font;
     store.addListener(_handleAppearanceChanged);
+  }
+
+  Future<void> _restoreAccount() async {
+    AccountUser? restored;
+    try {
+      restored = await accountApi.restoreSession();
+    } on AccountApiException catch (error) {
+      // Preserve the secure token during temporary network/service failures.
+      if (error.statusCode != 401 && error.statusCode != 403) restored = null;
+    }
+    if (!mounted) return;
+    setState(() {
+      accountUser = restored;
+      accountSessionChecked = true;
+      if (restored != null) store.signInDemo(restored.email);
+    });
+  }
+
+  void _onAuthenticated(AccountUser user) {
+    setState(() {
+      accountUser = user;
+      showLogin = false;
+      store.signInDemo(user.email);
+    });
+  }
+
+  Future<void> _signOut() async {
+    if (accountUser != null) {
+      try {
+        await accountApi.signOut();
+      } on AccountApiException {
+        // Local credentials are cleared even when the server cannot be reached.
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      accountUser = null;
+      showLogin = false;
+      store.signOut();
+    });
   }
 
   // Keep the Navigator/MaterialApp stable while demo accounts, projects and
@@ -56,6 +106,7 @@ class _HotIceAppState extends State<HotIceApp> {
   void dispose() {
     store.removeListener(_handleAppearanceChanged);
     store.dispose();
+    accountApi.dispose();
     super.dispose();
   }
 
@@ -75,12 +126,20 @@ class _HotIceAppState extends State<HotIceApp> {
       ),
       home: AnimatedBuilder(
         animation: store,
-        builder: (context, _) => store.signedIn
-            ? StudioShell(key: ValueKey(store.selectedAccount), store: store)
+        builder: (context, _) => !accountSessionChecked
+            ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+            : store.signedIn
+            ? StudioShell(
+                key: ValueKey(store.selectedAccount),
+                store: store,
+                authenticatedEmail: accountUser?.email,
+                onSignOut: _signOut,
+              )
             : showLogin
                 ? LoginPage(
                     onBack: () => setState(() => showLogin = false),
-                    onSubmit: store.signInDemo,
+                    accountApi: accountApi,
+                    onAuthenticated: _onAuthenticated,
                   )
                 : WelcomePage(
                     onStart: () => setState(() => showLogin = true),
@@ -93,7 +152,9 @@ class _HotIceAppState extends State<HotIceApp> {
 
 class StudioShell extends StatefulWidget {
   final HotIceStore store;
-  const StudioShell({super.key, required this.store});
+  final String? authenticatedEmail;
+  final Future<void> Function()? onSignOut;
+  const StudioShell({super.key, required this.store, this.authenticatedEmail, this.onSignOut});
 
   @override
   State<StudioShell> createState() => _StudioShellState();
@@ -102,6 +163,17 @@ class StudioShell extends StatefulWidget {
 class _StudioShellState extends State<StudioShell> {
   int selected = 0;
   String? openedProjectId;
+  InspirationTemplate? selectedTemplate;
+  int templateRevision = 0;
+
+  void useInspiration(InspirationTemplate item) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      selectedTemplate = item;
+      templateRevision++;
+      selected = 1;
+    });
+  }
 
   void navigate(int index) {
     // IndexedStack deliberately keeps form inputs alive; never leave a
@@ -195,7 +267,7 @@ class _StudioShellState extends State<StudioShell> {
                             child: Text('TEST $hoticeAppVersion · $hoticeBuildId',
                               style: const TextStyle(fontSize: 10)),
                           ),
-                        if (wide || MediaQuery.sizeOf(context).width >= 410)
+                        if (wide || MediaQuery.sizeOf(context).width >= 640)
                           TextButton.icon(
                             onPressed: () => navigate(3),
                             icon: const Icon(Icons.bolt_rounded, size: 19),
@@ -207,6 +279,11 @@ class _StudioShellState extends State<StudioShell> {
                             onPressed: () => navigate(3),
                             icon: const Icon(Icons.bolt_rounded),
                           ),
+                        IconButton(
+                          tooltip: 'Inspiration Library',
+                          onPressed: () => navigate(6),
+                          icon: const Icon(Icons.auto_stories_rounded),
+                        ),
                         IconButton(
                           tooltip: 'Switch account',
                           onPressed: () => navigate(5),
@@ -236,12 +313,19 @@ class _StudioShellState extends State<StudioShell> {
                         GenerationHubPage(
                           store: store,
                           initialProjectId: openedProjectId,
+                          initialTemplate: selectedTemplate,
+                          templateRevision: templateRevision,
                           isActive: selected == 1,
                         ),
                         AvatarsPage(store: store),
                         CreditsPage(store: store),
                         SettingsPage(store: store),
-                        AccountsPage(store: store),
+                        AccountsPage(
+                          store: store,
+                          authenticatedEmail: widget.authenticatedEmail,
+                          onSignOut: widget.onSignOut,
+                        ),
+                        InspirationPage(onUse: useInspiration),
                       ],
                     ),
                   ),
@@ -254,7 +338,7 @@ class _StudioShellState extends State<StudioShell> {
       bottomNavigationBar: wide
           ? null
           : NavigationBar(
-              selectedIndex: selected <= 4 ? selected : 4,
+              selectedIndex: selected <= 3 ? selected : 4,
               labelBehavior:
                   NavigationDestinationLabelBehavior.onlyShowSelected,
               onDestinationSelected: (index) {
@@ -268,6 +352,11 @@ class _StudioShellState extends State<StudioShell> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          ListTile(
+                            leading: const Icon(Icons.auto_stories_rounded),
+                            title: const Text('Inspiration Library'),
+                            onTap: () { Navigator.pop(ctx); navigate(6); },
+                          ),
                           ListTile(
                             leading: const Icon(Icons.tune_rounded),
                             title: const Text('Settings & appearance'),
@@ -311,8 +400,9 @@ class _Destination {
 const _nav = <_Destination>[
   _Destination(0, 'Projects', Icons.grid_view_rounded),
   _Destination(1, 'Generate', Icons.movie_creation_outlined),
-  _Destination(2, 'Avatars', Icons.face_retouching_natural_outlined),
+  _Destination(2, 'Actors', Icons.face_retouching_natural_outlined),
   _Destination(3, 'Credits', Icons.toll_outlined),
   _Destination(4, 'Settings', Icons.tune_rounded),
   _Destination(5, 'Accounts', Icons.people_outline_rounded),
+  _Destination(6, 'Inspiration', Icons.auto_stories_outlined),
 ];

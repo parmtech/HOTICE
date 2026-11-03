@@ -1,16 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+source backend/tests/auth-helper.sh
 BASE='http://127.0.0.1:18884'
 php -S 127.0.0.1:18884 -t backend/public backend/public/router.php >/tmp/hotice-php-test.log 2>&1 &
 server_pid=$!
 trap 'kill "$server_pid" 2>/dev/null || true' EXIT
 for i in $(seq 1 40); do if curl -fsS "$BASE/health" >/dev/null; then break; fi; sleep 0.25; done
 curl -fsS "$BASE/health" | jq -e '.status == "ok"' >/dev/null
+unknown_reset=$(curl -sS -w '\n%{http_code}' -H 'Content-Type: application/json' \
+  -d '{"email":"unknown-reset@example.com"}' "$BASE/v1/auth/password-reset/request")
+test "${unknown_reset##*$'\n'}" = '202'
+echo "${unknown_reset%$'\n'*}" | jq -e '.accepted == true' >/dev/null
+cors_headers=$(mktemp)
+curl -sS -D "$cors_headers" -o /dev/null -H 'Origin: https://studio.hotice.test' "$BASE/health"
+grep -iq '^Access-Control-Allow-Origin: https://studio.hotice.test' "$cors_headers"
+grep -iq '^Vary: Origin' "$cors_headers"
+! grep -iq '^Access-Control-Allow-Credentials:' "$cors_headers"
+! grep -iq '^Access-Control-Allow-Origin: \*' "$cors_headers"
+preflight_status=$(curl -sS -D "$cors_headers" -o /dev/null -w '%{http_code}' -X OPTIONS \
+  -H 'Origin: https://studio.hotice.test' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: authorization,content-type,idempotency-key' \
+  "$BASE/v1/auth/login")
+test "$preflight_status" = '204'
+grep -iq '^Access-Control-Allow-Headers: Authorization, Content-Type, Idempotency-Key' "$cors_headers"
+blocked_origin=$(curl -sS -D "$cors_headers" -o /dev/null -w '%{http_code}' \
+  -H 'Origin: https://attacker.example' "$BASE/health")
+test "$blocked_origin" = '403'
+! grep -iq '^Access-Control-Allow-Origin:' "$cors_headers"
+blocked_header=$(curl -sS -o /dev/null -w '%{http_code}' -X OPTIONS \
+  -H 'Origin: https://studio.hotice.test' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: authorization,x-unapproved' \
+  "$BASE/v1/auth/login")
+test "$blocked_header" = '403'
+rm -f "$cors_headers"
+php -r 'require "backend/src/App.php"; try { new Hotice\App(["app_key"=>str_repeat("a",64),"web_allowed_origins"=>["*"],"db"=>["dsn"=>"invalid:dsn","user"=>"","password"=>""]]); exit(1); } catch (RuntimeException $e) { if (!str_contains(strtolower($e->getMessage()),"origin")) exit(1); }'
+php -r 'require "backend/src/App.php"; try { new Hotice\App(["app_key"=>str_repeat("a",64),"web_allowed_origins"=>["https://studio.example.com/path"],"db"=>["dsn"=>"invalid:dsn","user"=>"","password"=>""]]); exit(1); } catch (RuntimeException $e) { if (!str_contains(strtolower($e->getMessage()),"origin")) exit(1); }'
 EMAIL='cloud-integration@example.com'
 PASS='TemporaryTestPassword123!'
-register=$(curl -sS -w '\n%{http_code}' -H 'Content-Type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" "$BASE/v1/auth/register")
-test "${register##*$'\n'}" = '201'
+register_and_verify "$EMAIL" "$PASS"
 login=$(curl -fsS -H 'Content-Type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" "$BASE/v1/auth/login")
 token=$(echo "$login" | jq -er '.accessToken')
 test "${#token}" -eq 64
@@ -44,7 +74,7 @@ cmp /tmp/hotice-ci-test.png /tmp/hotice-ci-download.png
 # A *different entitled account* must not access, overwrite, erase or
 # enumerate the first account's cloud data; free-vs-paid checks are insufficient.
 other_email='cloud-isolation@example.com'
-curl -fsS -H 'Content-Type: application/json' -d "{\"email\":\"$other_email\",\"password\":\"$PASS\"}" "$BASE/v1/auth/register" | jq -e '.registered == true' >/dev/null
+register_and_verify "$other_email" "$PASS"
 other_token=$(curl -fsS -H 'Content-Type: application/json' -d "{\"email\":\"$other_email\",\"password\":\"$PASS\"}" "$BASE/v1/auth/login" | jq -er '.accessToken')
 php backend/bin/grant-trial.php "$other_email" 32 1
 OTHER_AUTH="Authorization: Bearer $other_token"
@@ -68,6 +98,15 @@ curl -fsS -X DELETE -H "$AUTH" "$BASE/v1/projects/$id" | jq -e '.deleted == true
 curl -fsS -H "$AUTH" "$BASE/v1/me" | jq -e '.cloud.usedBytes == 0' >/dev/null
 status=$(curl -sS -o /dev/null -w '%{http_code}' -H "$AUTH" "$BASE/v1/files/$file")
 test "$status" = '404'
+NEW_PASS='NewTemporaryPassword456!'
+reset_password "$EMAIL" "$NEW_PASS"
+status=$(curl -sS -o /dev/null -w '%{http_code}' -H "$AUTH" "$BASE/v1/me")
+test "$status" = '401'
+status=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" "$BASE/v1/auth/login")
+test "$status" = '401'
+token=$(curl -fsS -H 'Content-Type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$NEW_PASS\"}" "$BASE/v1/auth/login" | jq -er '.accessToken')
+AUTH="Authorization: Bearer $token"
 curl -fsS -X POST -H "$AUTH" "$BASE/v1/auth/logout" | jq -e '.ok == true' >/dev/null
 status=$(curl -sS -o /dev/null -w '%{http_code}' -H "$AUTH" "$BASE/v1/me")
 test "$status" = '401'
@@ -84,3 +123,4 @@ status=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/j
 test "$status" = '429'
 
 echo 'HOTICE MySQL + HTTP API integration: passed (auth, entitlement, project conflict, media, delete, logout).'
+
