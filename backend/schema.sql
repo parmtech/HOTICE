@@ -262,10 +262,12 @@ CREATE TABLE IF NOT EXISTS cloud_files (
   byte_size BIGINT UNSIGNED NOT NULL,
   sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   scan_status ENUM('pending','clean','blocked') NOT NULL DEFAULT 'pending',
+  next_scan_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY ix_files_project (project_id, user_id),
   KEY ix_files_owner (user_id),
+  KEY ix_files_scan_schedule (scan_status, next_scan_at, created_at, id),
   CONSTRAINT fk_files_project FOREIGN KEY (project_id) REFERENCES cloud_projects(id) ON DELETE CASCADE,
   CONSTRAINT fk_files_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

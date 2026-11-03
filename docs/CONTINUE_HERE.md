@@ -1,5 +1,19 @@
 # HOTICE — LATEST DEVELOPMENT HANDOFF (26 OCTOBER 2026)
 
+> **3 November 2026 — media scan scheduling and throughput (review branch):**
+> Draft `perf/media-scan-retry-scheduler` is based on backend draft PR #60.
+> Uploads still enter `scan_status=pending` quarantine; `scan-media.php`
+> now selects due entries in an indexed schedule and pushes transient failures,
+> missing files and symlink paths back five minutes. Known malicious files are
+> still marked blocked, and only scanner-confirmed clean files can download.
+> An additive `next_scan_at` column/index migration is in the installer;
+> **existing database operators must rerun `backend/bin/install.php` before
+> deploying the updated scanner**. MySQL integration tests cover deferred
+> retry and an unaffected ready upload. This is source development, not a
+> production ClamAV or cPanel deployment acceptance. Do not merge straight
+> to `main`; the complete release gate #33 remains NOT READY.
+
+
 > **3 November 2026 — backend account deletion response safety (review branch):**
 > After the account and private-media retry queue have committed, a failure
 > while deleting a cleanup queue row must not convert the irreversible account
