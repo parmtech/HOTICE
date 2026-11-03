@@ -46,6 +46,20 @@ void main() {
     );
   });
 
+  test('encrypts restored in-memory photo bytes without plaintext staging',
+      () async {
+    final plain = Uint8List.fromList([0xff, 0xd8, 0xff, 9, 8, 7]);
+    final stored = await vault.encryptPhotoBytes(plain, referenceId: idA);
+    expect(stored.mimeType, 'image/jpeg');
+    expect(await vault.decryptPhoto(stored.path), plain);
+    expect(
+        await root
+            .list()
+            .where((entity) => entity.path.endsWith('.jpg'))
+            .isEmpty,
+        isTrue);
+  });
+
   test('rejects bad image signatures and unsafe reference IDs', () async {
     final source = File('${root.path}/not-an-image.bin');
     await source.writeAsString('not an image');

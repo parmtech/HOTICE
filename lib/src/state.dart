@@ -313,6 +313,49 @@ class HotIceStore extends ChangeNotifier {
     return true;
   }
 
+  /// Adds a restored actor and all of its references as one visible store
+  /// change. Callers must finish validating/encrypting media before this point.
+  bool addAvatarWithReferences(
+    StudioAvatar avatar,
+    Iterable<AvatarReference> references,
+  ) {
+    final items = references.toList(growable: false);
+    if (avatar.name.trim().isEmpty ||
+        avatar.name != avatar.name.trim() ||
+        avatars.any((a) => a.name.toLowerCase() == avatar.name.toLowerCase()) ||
+        items.isEmpty ||
+        items.length > 16 ||
+        items.any((asset) =>
+            asset.ownerName != avatar.name ||
+            asset.role != ReferenceRole.avatar ||
+            asset.format != ReferenceFormat.image ||
+            !asset.ownedTemporaryFile ||
+            asset.localPath.isEmpty ||
+            !const ['image/jpeg', 'image/png', 'image/webp']
+                .contains(asset.mimeType)) ||
+        items.map((asset) => asset.id).toSet().length != items.length) {
+      return false;
+    }
+    avatars.add(avatar);
+    _workspace.avatarReferences[avatar.name] = items;
+    notifyListeners();
+    return true;
+  }
+
+  /// Removes only staged restore metadata from its captured workspace.
+  /// The restore coordinator owns deleting its encrypted media files.
+  bool rollbackAvatarRestore(String workspaceId, String avatarName) {
+    final workspace = _workspaces[workspaceId];
+    if (workspace == null ||
+        !workspace.avatars.any((avatar) => avatar.name == avatarName)) {
+      return false;
+    }
+    workspace.avatars.removeWhere((avatar) => avatar.name == avatarName);
+    workspace.avatarReferences.remove(avatarName);
+    notifyListeners();
+    return true;
+  }
+
   void _deleteOwnedPhotos(Iterable<AvatarReference> photos) {
     final owned = photos.where((photo) => photo.ownedTemporaryFile).toList();
     if (owned.isEmpty || (!Platform.isAndroid && !Platform.isIOS)) return;

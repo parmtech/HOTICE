@@ -395,7 +395,7 @@ class _StudioShellState extends State<StudioShell> {
                           templateRevision: templateRevision,
                           isActive: selected == 1,
                         ),
-                        AvatarsPage(store: store),
+                        AvatarsPage(store: store, archive: widget.localArchive),
                         CreditsPage(store: store),
                         SettingsPage(store: store),
                         AccountsPage(
