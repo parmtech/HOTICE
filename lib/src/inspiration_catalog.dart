@@ -50,6 +50,10 @@ class InspirationTemplate {
   final String? mediaLicense;
   final String? previewUrl;
 
+  /// Bundled H.264 MP4 for native clients; the catalog's WebM remains the web
+  /// preview. Both are first-party concept visuals, never generated outputs.
+  String get nativePreviewAsset => 'web/public/assets/examples/$id.mp4';
+
   static InspirationTemplate fromJson(Map<String, dynamic> json) {
     final rawProvenance = json['provenance'];
     if (rawProvenance is! Map<String, dynamic>) {

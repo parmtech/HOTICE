@@ -82,6 +82,16 @@ def main():
         assert entry["previewUrl"] == "/assets/examples/" + entry["id"] + ".webm"
         preview_path = PUBLIC / entry["previewUrl"].lstrip("/")
         assert preview_path.is_file(), "Missing local motion study: " + str(preview_path)
+        native_path = PUBLIC / "assets" / "examples" / (entry["id"] + ".mp4")
+        native_data = native_path.read_bytes()
+        assert 10_000 < len(native_data) <= 1_000_000, \
+            "Native preview must stay within the per-file bundle limit: " + str(native_path)
+        assert b"ftyp" in native_data[:32] and b"avc1" in native_data, \
+            "Native preview must be an H.264 MP4: " + str(native_path)
+        poster_path = PUBLIC / "assets" / "examples" / (entry["id"] + ".png")
+        poster_data = poster_path.read_bytes()
+        assert poster_data.startswith(b"\x89PNG\r\n\x1a\n") and len(poster_data) <= 200_000, \
+            "Every card needs a valid, bounded local poster: " + str(poster_path)
         provenance = entry["provenance"]
         assert provenance["creator"]
         assert provenance["promptOrigin"]

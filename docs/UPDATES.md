@@ -6,6 +6,14 @@
 
 > **Do not confuse requirements, prototypes and production features.** "Implemented" means source code exists; "CI verified" means GitHub Actions passed for a specified commit; "production ready" additionally requires security, deployment and real-device tests. This document is not a claim that video AI, a real 3D face scanner, live payments or an administrator backend are active.
 
+## 4 November 2026 — Native Inspiration Library video previews
+
+- On branch `feat/flutter-inspiration-video-previews`, add tap-to-play previews for the six first-party Inspiration Library motion studies in Flutter. Cards remain posters until tapped; the full-screen native player starts paused and silent, supports scrubbing and play/pause, pauses on app background, and provides a retry path for playback failures.
+- Bundle a baseline H.264 640×360 silent MP4 and PNG poster per study for Android/iOS compatibility; retain the VP9 WebM for the browser. The six MP4s total under 500 KB, each stays below 127 KB, and the largest poster is 145 KB. All assets retain HOTICE concept-only/not-AI-output labeling and source rights metadata.
+- Pin Flutter dependency resolution with `pubspec.lock`; `video_player` 2.14.1 requires Dart 3.12+, so the declared minimum SDK is raised from 3.5 to 3.12.
+- Local verification: 51 Flutter unit/widget tests passed; analyzer reports no errors and 24 informational lints; static web/catalog and JavaScript syntax checks passed; ffprobe confirmed all six codecs, pixel formats, dimensions, frame rates and no audio streams. An Android integration test verifies no-autoplay and play/pause; the local environment has no Android emulator, so exact-head CI remains required.
+- No model calls, cloud media requests, payments or account changes are introduced. This branch improves example UX only and does not make HOTICE production ready.
+
 
 
 ## 27 October 2026 — Password-encrypted Actor backups and verified Android APK
