@@ -150,13 +150,23 @@ revoked_media_token=$(echo "$revoked_grant" | jq -er '.accessToken')
 curl -fsS -X POST -H "$SECOND_AUTH" "$BASE/v1/auth/logout" >/dev/null
 status=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Hotice-Media $revoked_media_token" "$BASE/v1/media/$file/content")
 test "$status" = '401'
+# The account has issued two grants above. Allow requests through grant 30
+# in the rolling minute, then reject grant 31 without returning a bearer.
+for grant_number in $(seq 3 30); do
+  status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H "$AUTH" \
+    "$BASE/v1/files/$file/access-grants")
+  test "$status" = '201'
+done
+status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H "$AUTH" \
+  "$BASE/v1/files/$file/access-grants")
+test "$status" = '429'
 php -r '
 require_once "backend/src/App.php";
 $db = (new Hotice\App(require "backend/config.php"))->database();
 $q = $db->prepare("SELECT event_code,COUNT(*) AS amount FROM media_access_audit WHERE file_id=? GROUP BY event_code");
 $q->execute([$argv[1]]);
 $events = array_column($q->fetchAll(), "amount", "event_code");
-if ((int)($events["grant_issued"] ?? 0) !== 2 || (int)($events["content_served"] ?? 0) !== 1) exit(1);
+if ((int)($events["grant_issued"] ?? 0) !== 30 || (int)($events["content_served"] ?? 0) !== 1) exit(1);
 $q = $db->prepare("SELECT access_count FROM media_access_grants WHERE token_sha256=?");
 $q->execute([hash("sha256", $argv[2])]);
 if ((int)$q->fetchColumn() !== 20) exit(1);
