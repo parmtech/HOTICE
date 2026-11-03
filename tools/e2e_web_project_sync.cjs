@@ -18,6 +18,7 @@ const cloudProjects = new Map();
 const mockJobs = new Map();
 const mockJobRequests = [];
 const mockJobListReads = new Map();
+let mockJobListRequestCount = 0;
 const mockQuoteRequests = [];
 const projectRequests = [];
 const apiEvents = [];
@@ -93,8 +94,10 @@ const api = http.createServer((req, res) => {
       return json(res, 201, {job, idempotentReplay: false});
     }
     if (url.pathname === '/v1/jobs' && req.method === 'GET') {
+      mockJobListRequestCount += 1;
       const jobs = [...mockJobs.values()];
       for (const job of jobs) {
+        if (job.errorCode === 'provider_outcome_unknown') continue;
         const reads = (mockJobListReads.get(job.id) || 0) + 1;
         mockJobListReads.set(job.id, reads);
         job.status = reads === 1 ? 'processing' : 'succeeded';
@@ -306,6 +309,10 @@ async function main() {
     assert.match(unsafeSyncStatus, /Inline media is not included/, `unexpected media sync result: ${unsafeSyncStatus}; requests=${JSON.stringify(apiEvents)}; uploads=${JSON.stringify(projectRequests.map(({method, path, body}) => ({method, path, mediaIncluded: Boolean(body?.document?.mediaData)})))}`);
     assert.equal(projectRequests.filter((request) => request.method === 'PUT').length, 0, 'local media is rejected before upload');
 
+    mockJobs.set('00000000-0000-4000-8000-000000000456', {
+      id: '00000000-0000-4000-8000-000000000456', modelId: 'hotice.mock.video.v1',
+      status: 'processing', errorCode: 'provider_outcome_unknown', reservedCredits: 4, result: null,
+    });
     await updateLocalDocument(page, 'remove-media');
     await page.reload({waitUntil: 'networkidle'});
     await page.locator('#accountEmail').fill('browser-test@example.test');
@@ -347,6 +354,11 @@ async function main() {
       await secondPage.locator('#accountSignIn').click();
       await secondPage.getByText('Signed in and verified with the HOTICE server.').waitFor();
       await secondPage.getByText('Mock job · succeeded').waitFor();
+      await secondPage.getByText('Provider outcome is unknown; credits remain reserved pending reconciliation.').waitFor();
+      const readsWithUnknownOutcome = mockJobListRequestCount;
+      await secondPage.waitForTimeout(5500);
+      assert.equal(mockJobListRequestCount, readsWithUnknownOutcome,
+        'an unknown provider outcome remains visible for reconciliation and is not automatically polled');
       await secondPage.locator('#cloudSyncConsent').check();
       await secondPage.locator('#loadCloudProjects').click();
       await secondPage.getByRole('button', {name: 'Save cloud copy on this device'}).first().click();
@@ -363,7 +375,7 @@ async function main() {
       scenarios: [
         'local project save, reload and reopen',
         'media data rejected before upload',
-        'authenticated mock generation quote, explicit submit, idempotency, foreground polling pause/resume and terminal stop',
+        'authenticated mock generation quote, explicit submit, idempotency, foreground polling pause/resume, terminal stop and unknown-outcome reconciliation hold',
         'cloud controls disabled until login and consent',
         'entitled account loads cloud list',
         'first cloud upload is authenticated',
