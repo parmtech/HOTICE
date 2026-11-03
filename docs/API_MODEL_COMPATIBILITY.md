@@ -1,5 +1,5 @@
 # HOTICE — AI Provider Compatibility Contract
-**Research checked:** 2026-10-29, Australia/Sydney  
+**Research checked:** 2026-11-04, Australia/Sydney
 **Implementation branch:** feat/smart-avatar-reference-engine  
 **Current product:** Flutter offline demo + source-backed model research catalog. No production API keys/authentication/rendering/billing.
 
@@ -50,6 +50,20 @@ Primary official documentation:
 - https://ai.google.dev/gemini-api/docs/models/gemini-3.5-transcribe
 
 This list represents known candidate model families, NOT all existing AI models, all account-specific entitlements or an assurance of availability after credentials are provided.
+
+## Catalog-change observation (checked 4 November 2026)
+
+The Runway Dev model index and API schema now list additional candidate routes beyond the profiles above, including Seedance 2.5 (`seedance2_5`), Kling 3.0 / Kling O3 variants, WAN 3, Grok Imagine 1.5, Hailuo 3, and others. The official pricing guide gives route- and mode-specific rates; Seedance 2.5, for example, has separate output and input/reference-video charges, resolution-dependent prices, and an 80-credit minimum. This is evidence that a model index or name alone is insufficient to activate a route.
+
+**HOTICE action:** these newly observed routes remain research-only and absent from the executable client registry. Before any route is shown as available, add an exact versioned backend capability record and independently verify endpoint schema, role/count semantics, duration/resolution/ratio tuples, account entitlement, region, limits, current cost formula, cancellation/retry behavior, output retention, and a no-cost/dry-run contract. Only then run an explicitly authorized low-cost staging golden render. Never infer compatibility from a shared provider brand or model family.
+
+Sources checked 2026-11-04 (official Runway Dev docs):
+- Available model IDs and guide links: https://docs.dev.runwayml.com/guides/models/
+- Route-specific pricing and billing formulas: https://docs.dev.runwayml.com/guides/pricing/
+- API request and response schema: https://docs.dev.runwayml.com/api/
+- Accepted input modalities and request constraints: https://docs.dev.runwayml.com/assets/inputs/
+
+These links and observed catalog entries are discovery evidence only. They do not establish HOTICE access, a successful render, or a current customer quote. Recheck upstream docs and exact account access before implementation or launch.
 
 ## Runway Gen-4.5 price and task lifecycle (checked 29 October 2026)
 
