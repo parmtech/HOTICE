@@ -634,10 +634,20 @@
         await refreshCloudStorageFromProfile();
       } else if (xhr.status === 0 || xhr.status >= 500 || xhr.status === 201) {
         await reconcileMediaUpload(clip, local, fileId);
+      } else if (xhr.status === 413) {
+        const quotaRefreshed = accountToken === sessionToken &&
+          await refreshCloudStorageFromProfile(sessionToken);
+        if (accountToken !== sessionToken) {
+          clip.uploadMessage = 'Upload was rejected after the account changed. The local clip is unchanged; sign in to check cloud files before retrying.';
+        } else if (quotaRefreshed && cloudStorage) {
+          const currentAvailable = Math.max(0, cloudStorage.quotaBytes - cloudStorage.usedBytes);
+          clip.uploadMessage = 'The server rejected this upload because cloud storage or the project file limit changed. Current available storage: ' +
+            formatStorageBytes(currentAvailable) + '. The local clip is unchanged; remove cloud media or change your plan, then retry.';
+        } else {
+          clip.uploadMessage = 'The server rejected this upload because cloud storage or the project file limit may have changed. Current quota could not be verified; the local clip is unchanged. Refresh storage before retrying.';
+        }
       } else {
-        clip.uploadMessage = xhr.status === 413
-          ? 'Cloud storage quota or file limit was reached. The local clip is unchanged.'
-          : xhr.status === 415 ? 'The server did not recognize this media format. The local clip is unchanged.'
+        clip.uploadMessage = xhr.status === 415 ? 'The server did not recognize this media format. The local clip is unchanged.'
             : xhr.status === 403 ? 'Cloud upload is unavailable for this account. The local clip is unchanged.'
               : 'Upload was rejected (HTTP ' + xhr.status + '). The local clip is unchanged.';
       }

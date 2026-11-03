@@ -26,6 +26,8 @@ const apiEvents = [];
 let pageOrigin;
 let conflictProjectId = null;
 let cloudQuotaBytes = 10 * 1024 * 1024;
+let rejectNextUploadForQuota = false;
+let mediaUploadAttempts = 0;
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -79,12 +81,18 @@ const api = http.createServer((req, res) => {
     }
     const uploadMatch = url.pathname.match(/^\/v1\/projects\/([0-9a-f-]{36})\/files\/([0-9a-f-]{36})$/i);
     if (uploadMatch && req.method === 'PUT') {
+      mediaUploadAttempts++;
       if (req.headers['content-type'] !== 'application/octet-stream') return json(res, 415, {error: 'Unsupported media type'});
       if (raw.length > 20 * 1024 * 1024) return json(res, 413, {error: 'Too large'});
       const project = cloudProjects.get(uploadMatch[1]);
       if (!project) return json(res, 404, {error: 'Project not found'});
       if (project.files.some((file) => file.id === uploadMatch[2])) return json(res, 409, {error: 'Duplicate media id'});
       if (req.headers.authorization !== 'Bearer ' + token) return json(res, 401, {error: 'Authentication required.'});
+      if (rejectNextUploadForQuota) {
+        rejectNextUploadForQuota = false;
+        cloudQuotaBytes = 20;
+        return json(res, 413, {error: 'Cloud storage quota exceeded.'});
+      }
       const file = {id: uploadMatch[2], mime: 'video/mp4', byte_size: raw.length, scan_status: 'pending'};
       project.files.push(file);
       cloudFileBytes.set(file.id, Buffer.from(raw));
@@ -381,9 +389,20 @@ async function main() {
     assert.equal(mediaUploadRequests.length, 0, 'quota preflight blocks upload before sending any media bytes');
     assert.equal(await page.evaluate(() => window.__uploadConfirmCalls), 0, 'over-quota file is rejected before the confirmation prompt');
     cloudQuotaBytes = 10 * 1024 * 1024;
+    rejectNextUploadForQuota = true;
+    await uploadButton.click();
+    await page.getByText(/Current available storage: 20 B/).waitFor();
+    assert.equal(mediaUploadAttempts, 1, 'the race rejection follows one confirmed upload attempt');
+    assert.equal(mediaUploadRequests.length, 0, 'a server quota race does not create a cloud media record');
+    assert.equal(await page.evaluate(() => window.__uploadConfirmCalls), 1);
+    assert.equal(await uploadButton.isDisabled(), false, 'a rejected cloud copy keeps the local clip available');
+    await page.getByText('Cloud storage · 0 B used of 20 B').waitFor();
+
+    cloudQuotaBytes = 10 * 1024 * 1024;
     await uploadButton.click();
     await page.getByText(/Uploaded privately\. Security scan pending/).waitFor();
-    assert.equal(await page.evaluate(() => window.__uploadConfirmCalls), 1, 'eligible upload is confirmed once after fresh quota verification');
+    assert.equal(await page.evaluate(() => window.__uploadConfirmCalls), 2, 'eligible upload is confirmed once after each fresh quota verification');
+    assert.equal(mediaUploadAttempts, 2);
     assert.equal(mediaUploadRequests.length, 1);
     assert.deepEqual(mediaUploadRequests[0].bytes, syntheticVideo, 'raw file bytes reach only the authenticated media route');
     await page.getByText('Cloud storage · 21 B used of 10 MiB').waitFor();
@@ -470,7 +489,7 @@ async function main() {
         'cloud controls disabled until login and consent',
         'entitled account loads cloud list',
         'first cloud upload is authenticated',
-        'fresh quota preflight blocks over-limit bytes before confirmation and allows eligible upload',
+        'fresh quota preflight blocks oversize use, reconciles an authoritative 413 quota race, preserves local media and allows a later eligible retry',
         'project media list shows scan state, blocks pending previews, uses short-lived grants after clean scan, and deletes cloud bytes without deleting local media',
         'revision conflict preserves local project',
         'separate cloud copy preserves both versions',
