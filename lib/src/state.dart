@@ -41,6 +41,22 @@ class HotProject {
   const HotProject(this.id, this.title, this.createdAt);
 }
 
+class PendingMockSubmission {
+  const PendingMockSubmission({
+    required this.idempotencyKey,
+    required this.accountUserId,
+    required this.projectId,
+    required this.prompt,
+    required this.createdAt,
+  });
+
+  final String idempotencyKey;
+  final String accountUserId;
+  final String projectId;
+  final String prompt;
+  final DateTime createdAt;
+}
+
 class StudioAvatar {
   final String name;
   final String style;
@@ -168,6 +184,7 @@ class _DemoWorkspace {
   final List<StudioAvatar> avatars = [];
   final List<GenerationDraft> drafts = [];
   final List<MusicVideoPlan> musicPlans = [];
+  final List<PendingMockSubmission> pendingMockSubmissions = [];
   final Map<String, int> cloudRevisions = {};
   int demoCredits = 1000;
 }
@@ -192,6 +209,50 @@ class HotIceStore extends ChangeNotifier {
   List<StudioAvatar> get avatars => _workspace.avatars;
   List<GenerationDraft> get drafts => _workspace.drafts;
   List<MusicVideoPlan> get musicPlans => _workspace.musicPlans;
+  List<PendingMockSubmission> get pendingMockSubmissions =>
+      List.unmodifiable(_workspace.pendingMockSubmissions);
+
+  List<PendingMockSubmission> pendingMockSubmissionsFor(String projectId) =>
+      List.unmodifiable(_workspace.pendingMockSubmissions.where(
+        (submission) => submission.projectId == projectId,
+      ));
+
+  void savePendingMockSubmission(PendingMockSubmission submission) {
+    if (!isCloudProjectId(submission.projectId) ||
+        !projects.any((item) => item.id == submission.projectId) ||
+        submission.accountUserId.trim().isEmpty ||
+        submission.accountUserId.length > 128 ||
+        RegExp(r'[\x00-\x1f\x7f]').hasMatch(submission.accountUserId) ||
+        !RegExp(r'^[A-Za-z0-9._~:-]{16,128}$')
+            .hasMatch(submission.idempotencyKey) ||
+        submission.prompt.trim().isEmpty ||
+        submission.prompt.trim().length > 2000) {
+      throw StateError('The pending generation request is invalid.');
+    }
+    final index = _workspace.pendingMockSubmissions.indexWhere(
+      (item) => item.idempotencyKey == submission.idempotencyKey,
+    );
+    if (index >= 0) {
+      final previous = _workspace.pendingMockSubmissions[index];
+      if (previous.projectId != submission.projectId ||
+          previous.accountUserId != submission.accountUserId ||
+          previous.prompt != submission.prompt) {
+        throw StateError('A generation request identifier cannot be reused.');
+      }
+      return;
+    }
+    _workspace.pendingMockSubmissions.add(submission);
+    notifyListeners();
+  }
+
+  bool removePendingMockSubmission(String idempotencyKey) {
+    final before = _workspace.pendingMockSubmissions.length;
+    _workspace.pendingMockSubmissions
+        .removeWhere((item) => item.idempotencyKey == idempotencyKey);
+    final removed = before != _workspace.pendingMockSubmissions.length;
+    if (removed) notifyListeners();
+    return removed;
+  }
 
   /// Build the explicit, selected-project cloud payload. Device media bytes,
   /// local source filenames, reference metadata and private identity notes are
@@ -502,6 +563,11 @@ class HotIceStore extends ChangeNotifier {
   bool deleteProject(String projectId) {
     final index = projects.indexWhere((p) => p.id == projectId);
     if (index < 0) return false;
+    if (_workspace.pendingMockSubmissions.any(
+      (submission) => submission.projectId == projectId,
+    )) {
+      return false;
+    }
     projects.removeAt(index);
     _workspace.cloudRevisions.remove(projectId);
     drafts.removeWhere((draft) => draft.projectId == projectId);
@@ -756,6 +822,16 @@ class HotIceStore extends ChangeNotifier {
                     ],
                   },
               ],
+              'pendingMockSubmissions': [
+                for (final submission in entry.value.pendingMockSubmissions)
+                  {
+                    'idempotencyKey': submission.idempotencyKey,
+                    'accountUserId': submission.accountUserId,
+                    'projectId': submission.projectId,
+                    'prompt': submission.prompt,
+                    'createdAt': submission.createdAt.toIso8601String(),
+                  },
+              ],
               'cloudRevisions': entry.value.cloudRevisions,
             },
         },
@@ -818,6 +894,37 @@ class HotIceStore extends ChangeNotifier {
       target.cloudRevisions.removeWhere(
         (id, _) => !target.projects.any((item) => item.id == id),
       );
+      for (final row in rows(source['pendingMockSubmissions']).take(100)) {
+        final key = row['idempotencyKey'];
+        final userId = row['accountUserId'];
+        final projectId = row['projectId'];
+        final prompt = row['prompt'];
+        if (key is String &&
+            RegExp(r'^[A-Za-z0-9._~:-]{16,128}$').hasMatch(key) &&
+            userId is String &&
+            userId.trim().isNotEmpty &&
+            userId.length <= 128 &&
+            !RegExp(r'[\x00-\x1f\x7f]').hasMatch(userId) &&
+            projectId is String &&
+            isCloudProjectId(projectId) &&
+            target.projects.any((project) => project.id == projectId) &&
+            prompt is String &&
+            prompt.trim().isNotEmpty &&
+            prompt.trim().length <= 2000 &&
+            !target.pendingMockSubmissions.any(
+              (item) => item.idempotencyKey == key,
+            )) {
+          target.pendingMockSubmissions.add(
+            PendingMockSubmission(
+              idempotencyKey: key,
+              accountUserId: userId,
+              projectId: projectId,
+              prompt: prompt,
+              createdAt: stamp(row['createdAt']),
+            ),
+          );
+        }
+      }
       for (final row in rows(source['avatars']).take(100)) {
         final name = row['name'];
         final style = row['style'];

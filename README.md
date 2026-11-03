@@ -57,7 +57,9 @@ The platform scaffolds (Android/iOS) are intentionally not committed at this UI-
 - lib/src/welcome.dart — welcome and demo sign-in/register
 - lib/src/projects_generation.dart — projects and generation UI
 - lib/src/account_credits.dart — avatars, credits, themes and accounts
+- lib/src/account_api.dart — secure account, cloud-project and mock-job API client
 - docs/NATIVE_CLOUD_PROJECTS.md — native cloud-copy flow, consent scope, API contract, conflict rules and release limits
+- docs/NATIVE_MOCK_GENERATION.md — native authenticated dry-run flow, prompt privacy and idempotent retry behavior
 - lib/src/video_models.dart — demo-only model capability rules, dynamic duration/aspect controls and attachment/quote validation
 - lib/src/inspiration_catalog.dart — approved local prompt catalog, rights metadata and Actor-role mapping
 - web/public — Namecheap/cPanel-compatible static site, local Actor list and browser scene-editor preview
@@ -74,7 +76,7 @@ See docs/BLUEPRINT.md and docs/PROGRESS.md.
 - Native cloud-copy API/client tests cover one-project selection, privacy-safe fields, encrypted archive revision persistence, explicit consent, cancellation and stale remote revision handling.
 - Full Flutter tests passed locally on this feature branch. Android debug APK compilation passed locally after generating Flutter's platform scaffolds.
 - These checks do not substitute for this branch's exact-head GitHub Actions, production-signed store builds, physical-device QA, or cPanel deployment acceptance.
-- Real model inference, production camera/3D reconstruction, checkout, live providers and production hosting remain gated. This feature makes no provider or payment calls.
+- Real model inference, production camera/3D reconstruction, checkout, live providers and production hosting remain gated. The native mock dry run uses only the authenticated queue and simulated credits; it makes no paid provider or payment calls.
 - Android and iOS native scaffolds are generated in CI/on demand and are not committed to this repository.
 
 For continuation, see [docs/CONTINUE_HERE.md](docs/CONTINUE_HERE.md).

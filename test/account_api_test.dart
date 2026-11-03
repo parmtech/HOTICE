@@ -243,7 +243,110 @@ void main() {
       api.dispose();
     },
   );
+
+  test('native mock generation uses explicit quote and idempotent job API',
+      () async {
+    final requests = <http.Request>[];
+    const jobId = '12345678-1234-4234-8234-123456789abc';
+    final api = AccountApi(
+      baseUrl: 'https://api.example.com',
+      tokenStore: _MemoryTokens()..value = token,
+      client: _Client((request) async {
+        requests.add(request);
+        if (request.url.path == '/v1/me') {
+          return http.Response(
+            jsonEncode({
+              'mockGeneration': {'enabled': true, 'credits': 20}
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/v1/jobs/quote') {
+          expect(jsonDecode(request.body), {
+            'request': {
+              'modelId': 'hotice.mock.video.v1',
+              'prompt': 'A moonlit city',
+            },
+          });
+          return http.Response(
+            jsonEncode({
+              'quoteToken': 'short-lived-quote',
+              'modelId': 'hotice.mock.video.v1',
+              'credits': 5,
+              'expiresAt': DateTime.now()
+                  .add(const Duration(minutes: 3))
+                  .toUtc()
+                  .toIso8601String(),
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/v1/jobs') {
+          expect(request.headers['idempotency-key'], 'intent-1234567890abcdef');
+          expect(jsonDecode(request.body), {
+            'quoteToken': 'short-lived-quote',
+            'request': {
+              'modelId': 'hotice.mock.video.v1',
+              'prompt': 'A moonlit city',
+            },
+          });
+          return http.Response(jsonEncode({'job': _job(jobId)}), 201);
+        }
+        if (request.url.path == '/v1/jobs/$jobId/cancel') {
+          return http.Response(
+            jsonEncode({'job': _job(jobId, status: 'cancelled')}),
+            200,
+          );
+        }
+        throw StateError('Unexpected ${request.method} ${request.url.path}');
+      }),
+    );
+
+    final availability = await api.getMockGenerationAvailability();
+    expect(availability.enabled, isTrue);
+    expect(availability.credits, 20);
+    final quote = await api.quoteMockGeneration('  A moonlit city  ');
+    expect(quote.credits, 5);
+    final first = await api.submitMockGeneration(
+      quoteToken: quote.token,
+      prompt: 'A moonlit city',
+      idempotencyKey: 'intent-1234567890abcdef',
+    );
+    final replay = await api.submitMockGeneration(
+      quoteToken: quote.token,
+      prompt: 'A moonlit city',
+      idempotencyKey: 'intent-1234567890abcdef',
+    );
+    expect(first.id, jobId);
+    expect(replay.id, jobId);
+    final cancelled = await api.cancelMockGenerationJob(jobId);
+    expect(cancelled.status, 'cancelled');
+    expect(
+      requests.where((request) => request.url.path == '/v1/jobs').length,
+      2,
+      reason: 'A safe retry must reuse the stable idempotency key.',
+    );
+    expect(
+      requests.every(
+          (request) => !request.url.queryParameters.containsKey('token')),
+      isTrue,
+    );
+    api.dispose();
+  });
 }
+
+Map<String, dynamic> _job(String id, {String status = 'queued'}) => {
+      'id': id,
+      'modelId': 'hotice.mock.video.v1',
+      'status': status,
+      'attempts': 0,
+      'maxAttempts': 3,
+      'reservedCredits': status == 'queued' ? 5 : 0,
+      'chargedCredits': 0,
+      'result': null,
+      'errorCode': status == 'queued' ? null : 'cancelled_by_user',
+      'createdAt': '2026-11-03 00:00:00',
+    };
 
 class _MemoryTokens implements AccountTokenStore {
   String? value;

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'account_api.dart';
 import 'projects_generation.dart';
 import 'music_studio.dart';
 import 'state.dart';
@@ -7,13 +8,23 @@ import 'inspiration_catalog.dart';
 /// One obvious mode switch rather than a maze of generator settings.
 class GenerationHubPage extends StatefulWidget {
   final HotIceStore store;
+  final AccountApi? accountApi;
+  final String? authenticatedEmail;
+  final String? authenticatedUserId;
   final String? initialProjectId;
   final InspirationTemplate? initialTemplate;
   final int templateRevision;
   final bool isActive;
   const GenerationHubPage({
-    super.key, required this.store, this.initialProjectId,
-    this.initialTemplate, this.templateRevision = 0, this.isActive = true,
+    super.key,
+    required this.store,
+    this.accountApi,
+    this.authenticatedEmail,
+    this.authenticatedUserId,
+    this.initialProjectId,
+    this.initialTemplate,
+    this.templateRevision = 0,
+    this.isActive = true,
   });
 
   @override
@@ -60,8 +71,11 @@ class _GenerationHubPageState extends State<GenerationHubPage> {
                   padding: const EdgeInsets.only(left: 6, top: 8),
                   child: Text(
                     'TEST PREVIEW',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800,
-                        letterSpacing: 1.4, color: primary),
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.4,
+                        color: primary),
                   ),
                 ),
               ],
@@ -77,6 +91,9 @@ class _GenerationHubPageState extends State<GenerationHubPage> {
             children: [
               GenerationPage(
                 store: widget.store,
+                accountApi: widget.accountApi,
+                authenticatedEmail: widget.authenticatedEmail,
+                authenticatedUserId: widget.authenticatedUserId,
                 initialProjectId: widget.initialProjectId,
                 initialTemplate: widget.initialTemplate,
                 templateRevision: widget.templateRevision,

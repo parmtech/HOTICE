@@ -119,4 +119,39 @@ void main() {
     expect(store.projects.single.id, id);
     store.dispose();
   });
+
+  test(
+      'uncertain mock submissions persist locally and never enter cloud copies',
+      () {
+    final store = HotIceStore()..signInDemo('creator@example.com');
+    final id = store.addProject('Retry-safe film');
+    const key = 'intent-1234567890abcdef';
+    store.savePendingMockSubmission(
+      PendingMockSubmission(
+        idempotencyKey: key,
+        accountUserId: 'creator-user-123',
+        projectId: id,
+        prompt: 'A private scene prompt',
+        createdAt: DateTime.utc(2026, 11, 3),
+      ),
+    );
+
+    expect(store.deleteProject(id), isFalse);
+    final local = store.exportLocalSnapshot();
+    final restored = HotIceStore()..restoreLocalSnapshot(local);
+    final pending = restored.pendingMockSubmissionsFor(id).single;
+    expect(pending.idempotencyKey, key);
+    expect(pending.accountUserId, 'creator-user-123');
+    expect(pending.prompt, 'A private scene prompt');
+
+    final cloud = store.exportCloudProject(id);
+    expect(cloud.toString(), isNot(contains('intent-1234567890abcdef')));
+    expect(cloud.toString(), isNot(contains('creator-user-123')));
+    expect(cloud.toString(), isNot(contains('pendingMockSubmissions')));
+
+    expect(restored.removePendingMockSubmission(key), isTrue);
+    expect(restored.deleteProject(id), isTrue);
+    store.dispose();
+    restored.dispose();
+  });
 }

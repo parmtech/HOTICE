@@ -182,6 +182,7 @@ class _HotIceAppState extends State<HotIceApp> {
                     store: store,
                     accountApi: accountApi,
                     authenticatedEmail: accountUser?.email,
+                    authenticatedUserId: accountUser?.id,
                     onSignOut: _signOut,
                   )
                 : showLogin
@@ -204,12 +205,14 @@ class StudioShell extends StatefulWidget {
   final HotIceStore store;
   final AccountApi? accountApi;
   final String? authenticatedEmail;
+  final String? authenticatedUserId;
   final Future<void> Function()? onSignOut;
   const StudioShell({
     super.key,
     required this.store,
     this.accountApi,
     this.authenticatedEmail,
+    this.authenticatedUserId,
     this.onSignOut,
   });
 
@@ -371,6 +374,9 @@ class _StudioShellState extends State<StudioShell> {
                         ),
                         GenerationHubPage(
                           store: store,
+                          accountApi: widget.accountApi,
+                          authenticatedEmail: widget.authenticatedEmail,
+                          authenticatedUserId: widget.authenticatedUserId,
                           initialProjectId: openedProjectId,
                           initialTemplate: selectedTemplate,
                           templateRevision: templateRevision,
