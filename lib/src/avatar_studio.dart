@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'encrypted_face_photo_preview.dart';
 import 'smart_references.dart';
 import 'live_face_capture.dart';
 import 'face_capture_quality.dart';
@@ -675,7 +676,17 @@ class _AvatarsPageState extends State<AvatarsPage> {
                   ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.photo_outlined),
+                    leading: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: EncryptedFacePhotoPreview(
+                        path: photo.localPath,
+                        accountScope: widget.store.selectedWorkspaceId,
+                        width: 56,
+                        height: 68,
+                        semanticLabel:
+                            '${photo.view?.label ?? 'Unspecified view'} saved face reference',
+                      ),
+                    ),
                     title: Text(photo.view?.label ?? 'Reference'),
                     subtitle: const Text('Unverified face photo'),
                     trailing: IconButton(

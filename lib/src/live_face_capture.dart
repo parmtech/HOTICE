@@ -8,6 +8,7 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
 import 'face_capture_quality.dart';
 import 'face_reference_vault.dart';
+import 'encrypted_face_photo_preview.dart';
 import 'state.dart';
 
 class CapturedFacePhoto {
@@ -492,10 +493,13 @@ class _LiveFaceScanPageState extends State<LiveFaceScanPage>
                         padding: const EdgeInsets.only(right: 8),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                          child: _VaultPhotoPreview(
+                          child: EncryptedFacePhotoPreview(
                             key: ValueKey(shot.id),
                             path: shot.path,
                             accountScope: widget.accountScope,
+                            width: 96,
+                            height: 108,
+                            semanticLabel: '${shot.pose.label} captured face photo',
                           ),
                         ),
                       ),
@@ -525,75 +529,4 @@ class _LiveFaceScanPageState extends State<LiveFaceScanPage>
       ),
     );
   }
-}
-
-class _VaultPhotoPreview extends StatefulWidget {
-  const _VaultPhotoPreview({
-    super.key,
-    required this.path,
-    required this.accountScope,
-  });
-  final String path;
-  final String accountScope;
-
-  @override
-  State<_VaultPhotoPreview> createState() => _VaultPhotoPreviewState();
-}
-
-class _VaultPhotoPreviewState extends State<_VaultPhotoPreview> {
-  late Future<Uint8List> _photo;
-
-  @override
-  void initState() {
-    super.initState();
-    _photo = _load();
-  }
-
-  @override
-  void didUpdateWidget(covariant _VaultPhotoPreview oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.path != widget.path) _photo = _load();
-  }
-
-  Future<Uint8List> _load() async => (await FaceReferenceVault.openOnDevice(
-        accountScope: widget.accountScope,
-      )).decryptPhoto(widget.path);
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-        width: 96,
-        height: 108,
-        child: FutureBuilder<Uint8List>(
-          future: _photo,
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return const ColoredBox(
-                color: Color(0xFF232A38),
-                child: Icon(Icons.lock_outline, color: Colors.white70),
-              );
-            }
-            if (!snapshot.hasData) {
-              return const ColoredBox(
-                color: Color(0xFF232A38),
-                child: Center(
-                  child: SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                ),
-              );
-            }
-            return Image.memory(
-              snapshot.data!,
-              width: 96,
-              height: 108,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const ColoredBox(
-                color: Color(0xFF232A38),
-                child: Icon(Icons.broken_image_outlined, color: Colors.white70),
-              ),
-            );
-          },
-        ),
-      );
 }
