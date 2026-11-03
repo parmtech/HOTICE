@@ -870,7 +870,17 @@ final class App
             if ($this->db->inTransaction()) $this->db->rollBack();
             throw $e;
         }
-        $purged = $this->purgePrivateFilesNow($names, $storage);
+        // The account and retry queue are already durably committed. A
+        // transient filesystem/DB cleanup fault must not turn an irrevocable
+        // deletion into a misleading HTTP 500 (or invite repeated deletion).
+        $purged = 0;
+        try {
+            $purged = $this->purgePrivateFilesNow($names, $storage);
+        } catch (Throwable $e) {
+            // The queue survives the committed account deletion. A worker can
+            // retry later; avoid logging filenames, emails or credentials.
+            error_log('HOTICE post-commit media cleanup deferred (' . get_class($e) . ')');
+        }
         $this->send(200, ['deleted' => true, 'queuedMediaFiles' => max(0, count($names) - $purged),
             'accountDataRemoved' => true]);
     }
@@ -1120,8 +1130,15 @@ final class App
             $removed = !file_exists($path) && !is_link($path);
             if (!$removed && (is_file($path) || is_link($path))) $removed = @unlink($path);
             if ($removed) {
-                $this->db->prepare('DELETE FROM private_media_deletion_queue WHERE storage_name=?')->execute([$name]);
-                $purged++;
+                try {
+                    $this->db->prepare('DELETE FROM private_media_deletion_queue WHERE storage_name=?')->execute([$name]);
+                    $purged++;
+                } catch (Throwable $e) {
+                    // Failed bookkeeping is safe: the queue still references
+                    // this name. The scheduled worker will retry (including
+                    // when the media bytes were already removed).
+                    error_log('HOTICE private media purge queue retry needed (' . get_class($e) . ')');
+                }
             }
         }
         return $purged;
