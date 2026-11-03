@@ -347,6 +347,21 @@ async function main() {
       {order: 0, name: 'hotice-synthetic-first.webm', kind: 'video',
         start: 0.2, end: 1.8, speed: 1.5, validDuration: true},
       'The timeline must preserve its ordering, trim, speed and readable duration.');
+    const relinkFixture = fs.readFileSync(path.join(__dirname,
+      'fixtures', 'hotice-synthetic-source.webm'));
+    await page.locator('#clipsInput').setInputFiles([
+      {name: 'hotice-synthetic-first.webm', mimeType: 'video/webm', buffer: relinkFixture},
+      {name: 'hotice-synthetic-second.webm', mimeType: 'video/webm', buffer: relinkFixture},
+    ]);
+    await page.waitForFunction(() => document.querySelector('#previewVideo')?.readyState >= 1);
+    assert.equal(await page.locator('#clipTimeline [role="listitem"]').count(), 2,
+      'Re-importing original filenames must reconnect clips instead of duplicating them.');
+    assert.equal(await page.locator('#exportVideo').isDisabled(), false,
+      'Re-imported source clips must be available for local export.');
+    assert.equal(await page.locator('#trimStart').inputValue(), '0.2');
+    assert.equal(await page.locator('#trimEnd').inputValue(), '1.8');
+    assert.equal(await page.locator('#clipSpeed').inputValue(), '1.5');
+    assert.match(await page.locator('#editorStatus').textContent(), /2 saved timeline clips were relinked/);
 
     // Seed a local-only media field and prove it is rejected before network transfer.
     await updateLocalDocument(page, 'add-media');
@@ -456,6 +471,7 @@ async function main() {
         'trimmed and sequenced two synthetic local video/audio clips into a playable 720p export with preserved sound and no API calls',
         'canceled a replacement recording without losing the prior exported file',
         'local project save, reload and reopen',
+        'relinked imported clips by filename after project restore while preserving trim and speed',
         'media data rejected before upload',
         'authenticated mock generation quote, explicit submit, idempotency and status refresh',
         'cloud controls disabled until login and consent',
