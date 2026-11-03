@@ -54,7 +54,7 @@ void main() {
     expect(find.text('I agree — start camera'), findsOneWidget);
     await tester.pageBack();
     await tester.pumpAndSettle();
-    expect(find.text('Avatar Studio'), findsOneWidget);
+    expect(find.text('Actors Studio'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.text('Credits').last);
