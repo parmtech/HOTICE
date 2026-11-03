@@ -8,6 +8,65 @@ import 'package:hotice/src/avatar_identity.dart';
 import 'package:hotice/src/music_studio.dart';
 
 void main() {
+  test('authenticated workspaces follow stable server IDs across email changes', () {
+    final store = HotIceStore();
+    store.signInAuthenticated('server-user-01', 'before@example.com');
+    final projectId = store.addProject('Account-owned local cut');
+    store.markCloudRevision(projectId, 2);
+    store.savePendingMockSubmission(PendingMockSubmission(
+      idempotencyKey: 'intent-stable-id-12345678',
+      accountUserId: 'server-user-01',
+      projectId: projectId,
+      prompt: 'A local scene prompt',
+      createdAt: DateTime.utc(2026, 11, 4),
+    ));
+    store.signInAuthenticated('server-user-01', 'after@example.com');
+    expect(store.projects.single.id, projectId);
+    expect(store.cloudRevision(projectId), 2);
+    expect(store.pendingMockSubmissions.single.accountUserId, 'server-user-01');
+    expect(store.selectedAccount, 'after@example.com');
+
+    store.signInAuthenticated('server-user-02', 'after@example.com');
+    expect(store.projects, isEmpty);
+    expect(store.cloudRevision(projectId), 0);
+    expect(store.pendingMockSubmissions, isEmpty);
+    store.signInAuthenticated('server-user-01', 'renamed@example.com');
+    expect(store.projects.single.id, projectId);
+
+    store.signInDemo('renamed@example.com');
+    expect(store.projects, isEmpty);
+    expect(store.pendingMockSubmissions, isEmpty);
+    store.signInAuthenticated('server-user-01', 'renamed@example.com');
+    expect(store.projects.single.id, projectId);
+    store.dispose();
+  });
+
+  test('schema 1 email workspaces remain local during archive migration', () {
+    final store = HotIceStore();
+    store.restoreLocalSnapshot({
+      'schema': 1,
+      'selectedAccount': 'before@example.com',
+      'workspaces': {
+        'before@example.com': {
+          'projects': [
+            {
+              'id': 'legacy-local-project',
+              'title': 'Legacy local cut',
+              'createdAt': '2026-10-01T00:00:00.000',
+            },
+          ],
+        },
+      },
+    });
+    expect(store.projects.single.id, 'legacy-local-project');
+    expect(store.exportLocalSnapshot()['schema'], 2);
+    store.signInAuthenticated('server-user-01', 'before@example.com');
+    expect(store.projects, isEmpty);
+    store.switchAccount('before@example.com');
+    expect(store.projects.single.id, 'legacy-local-project');
+    store.dispose();
+  });
+
   test('new device projects use unique UUIDv4 IDs for future cloud API', () {
     final store = HotIceStore();
     addTearDown(store.dispose);
