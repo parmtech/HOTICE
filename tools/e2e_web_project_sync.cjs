@@ -25,6 +25,7 @@ const cloudFileBytes = new Map();
 const apiEvents = [];
 let pageOrigin;
 let conflictProjectId = null;
+let cloudQuotaBytes = 10 * 1024 * 1024;
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -127,7 +128,7 @@ const api = http.createServer((req, res) => {
         .reduce((total, file) => total + Number(file.byte_size || 0), 0);
       return json(res, 200, {
         user: {id: '00000000-0000-4000-8000-000000000001', email: 'browser-test@example.test'},
-        cloud: {active: true, readable: true, quotaBytes: 10485760, usedBytes},
+        cloud: {active: true, readable: true, quotaBytes: cloudQuotaBytes, usedBytes},
         mockGeneration: {enabled: true, credits: 10, unit: 'simulated_credits', moneyValue: 0},
       });
     }
@@ -373,9 +374,16 @@ async function main() {
     assert.equal(mediaUploadRequests.length, 0, 'revoked consent prevents file transfer');
     await page.locator('#cloudSyncConsent').check();
     assert.equal(await uploadButton.isDisabled(), false, 'explicit consent restores eligible upload');
-    await page.evaluate(() => { window.confirm = () => true; });
+    await page.evaluate(() => { window.__uploadConfirmCalls = 0; window.confirm = () => { window.__uploadConfirmCalls++; return true; }; });
+    cloudQuotaBytes = 20;
+    await uploadButton.click();
+    await page.getByText(/Not enough HOTICE cloud storage: 20 B available for this 21 B clip/).waitFor();
+    assert.equal(mediaUploadRequests.length, 0, 'quota preflight blocks upload before sending any media bytes');
+    assert.equal(await page.evaluate(() => window.__uploadConfirmCalls), 0, 'over-quota file is rejected before the confirmation prompt');
+    cloudQuotaBytes = 10 * 1024 * 1024;
     await uploadButton.click();
     await page.getByText(/Uploaded privately\. Security scan pending/).waitFor();
+    assert.equal(await page.evaluate(() => window.__uploadConfirmCalls), 1, 'eligible upload is confirmed once after fresh quota verification');
     assert.equal(mediaUploadRequests.length, 1);
     assert.deepEqual(mediaUploadRequests[0].bytes, syntheticVideo, 'raw file bytes reach only the authenticated media route');
     await page.getByText('Cloud storage · 21 B used of 10 MiB').waitFor();
@@ -462,7 +470,7 @@ async function main() {
         'cloud controls disabled until login and consent',
         'entitled account loads cloud list',
         'first cloud upload is authenticated',
-        'explicit selected media upload sends exact bytes to private route and reports pending scan',
+        'fresh quota preflight blocks over-limit bytes before confirmation and allows eligible upload',
         'project media list shows scan state, blocks pending previews, uses short-lived grants after clean scan, and deletes cloud bytes without deleting local media',
         'revision conflict preserves local project',
         'separate cloud copy preserves both versions',

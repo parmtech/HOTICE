@@ -341,14 +341,16 @@
       controls.append(open, earlier, later);
       if (clip.file) {
         const upload = make('button', 'tool', clip.cloudFileId ? 'Uploaded · scan pending' :
-          clip.uploading ? 'Cancel upload' : 'Upload selected clip');
+          clip.uploading ? 'Cancel upload' : clip.quotaChecking ? 'Checking storage…' : 'Upload selected clip');
         upload.type = 'button';
-        upload.disabled = Boolean(clip.cloudFileId || !clip.file || !accountToken ||
+        upload.disabled = Boolean(clip.cloudFileId || clip.quotaChecking || !clip.file || !accountToken ||
           !projectConsent?.checked || !accountCanWriteCloud || !selectedProjectId ||
           !localProjectCache?.some((project) => project.id === selectedProjectId && project.cloudId));
         upload.setAttribute('aria-label', clip.cloudFileId
           ? clip.name + ' uploaded; security scan pending'
-          : clip.uploading ? 'Cancel upload of ' + clip.name : 'Upload ' + clip.name + ' to cloud');
+          : clip.uploading ? 'Cancel upload of ' + clip.name
+            : clip.quotaChecking ? 'Checking storage for ' + clip.name
+              : 'Upload ' + clip.name + ' to cloud');
         upload.addEventListener('click', () => clip.uploading
           ? clip.uploadXhr?.abort() : uploadClipToCloud(clip));
         controls.append(upload);
@@ -558,6 +560,7 @@
   }
 
   async function uploadClipToCloud(clip) {
+    if (clip.uploading || clip.quotaChecking) return;
     if (!clip.file || !cloudActionAllowed(true)) {
       clip.uploadMessage = 'Sign in, confirm cloud consent and check the active storage entitlement.';
       renderClips();
@@ -575,6 +578,29 @@
       renderClips();
       return;
     }
+    const sessionToken = accountToken;
+    clip.quotaChecking = true;
+    clip.uploadMessage = 'Checking current HOTICE cloud storage…';
+    renderClips();
+    const storageVerified = await refreshCloudStorageFromProfile(sessionToken);
+    if (!storageVerified || accountToken !== sessionToken || !cloudActionAllowed(true) ||
+        selectedProjectId !== local.id || !clips.includes(clip) ||
+        !localProjectCache.some((project) => project.id === local.id && project.cloudId === local.cloudId)) {
+      clip.quotaChecking = false;
+      clip.uploadMessage = 'Could not verify cloud storage or consent changed. Your local clip is unchanged; retry when the account is available.';
+      renderClips();
+      return;
+    }
+    const availableBytes = Math.max(0, cloudStorage.quotaBytes - cloudStorage.usedBytes);
+    if (clip.file.size > availableBytes) {
+      clip.quotaChecking = false;
+      clip.uploadMessage = 'Not enough HOTICE cloud storage: ' + formatStorageBytes(availableBytes) +
+        ' available for this ' + formatStorageBytes(clip.file.size) + ' clip. Remove cloud media or change your plan; the local clip is unchanged.';
+      renderClips();
+      return;
+    }
+    clip.quotaChecking = false;
+    renderClips();
     const fileId = crypto.randomUUID();
     const confirmed = window.confirm('Upload “' + clip.name + '” (' +
       (clip.file.size / 1048576).toFixed(1) + ' MiB) to the private HOTICE cloud copy of “' +
@@ -943,17 +969,19 @@
   }
 
   async function refreshCloudStorageFromProfile(token = accountToken) {
-    if (!token) return;
+    if (!token) return false;
     try {
       const profile = await accountApi('/v1/me', {token});
       const quotaBytes = profile.cloud?.quotaBytes;
       const usedBytes = profile.cloud?.usedBytes;
       if (accountToken !== token || !Number.isSafeInteger(quotaBytes) || quotaBytes < 0 ||
-          !Number.isSafeInteger(usedBytes) || usedBytes < 0) return;
+          !Number.isSafeInteger(usedBytes) || usedBytes < 0) return false;
       cloudStorage = {quotaBytes, usedBytes};
       refreshCloudStorageUsage();
+      return true;
     } catch (_) {
       // Keep the last server-confirmed quota visible if a background refresh fails.
+      return false;
     }
   }
 
