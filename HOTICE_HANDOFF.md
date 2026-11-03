@@ -570,9 +570,13 @@ Repository references: [release issue #33](https://github.com/parmtech/HOTICE/is
 - PR #79 (`feat/native-archive-save-health`) adds visible saved/saving/failure
   status and retry for the latest encrypted device snapshot. Local suite passed
   74 tests; analyzer zero errors (45 informational lints); diff check passed.
-  In exact-head run 41685598266, source/dependency inventory, static browser
-  dry run and Flutter analysis/tests passed; Android APK and emulator smoke are
-  still active.
+  Follow-up commit `8d01b0ca20a99250fb699aa18b70b2e5983fc727` corrects a UX
+  truth issue: the status begins unsaved, only successful write/restore marks
+  it saved, and first-save failure warns accurately. Full local suite now
+  passes 75 tests; analyzer has zero errors (45 informational lints); diff
+  check passed. Exact-head run 41686301713 is queued. On prior head
+  `eeec47f21d9b0af9916ad8fa85e9623312fe56ed`, inventory, static browser dry
+  run, Flutter analysis/tests passed; APK and emulator were active.
 - PR #70 handoff branch head `1edd1a000873ae94e5d8da87457e91b548582695`
   has exact-head run 41685739669 in progress; Flutter setup is active.
 - PR #32 (`feat/smart-avatar-reference-engine`) remains open and draft at
@@ -581,6 +585,7 @@ Repository references: [release issue #33](https://github.com/parmtech/HOTICE/is
   the implemented research catalog and guided 2D reference path only. Physical
   device QA, live provider lifecycle, secure media upload, billing and true 3D
   reconstruction are still not established by those checks.
-- Issue #33 has progress comments for #78 and #79. Continue the next blueprint
-  gap after the active client CI jobs finish. Keep release
+- Issue #33 has a progress comment for #78 and the earlier #79 head. Refresh
+  it with commit `8d01b0c` CI once available, then continue the next blueprint
+  gap. Keep release
   NOT READY TO PUBLISH until all release gates pass.
