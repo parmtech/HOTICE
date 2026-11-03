@@ -132,6 +132,16 @@ test "$status" = '401'
 wrong_media=$(printf '%s' '77777777-7777-4777-8777-777777777777')
 status=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Hotice-Media $media_token" "$BASE/v1/media/$wrong_media/content")
 test "$status" = '401'
+# The same grant is bounded to exactly 20 successful content reads.
+# The initial download above consumed read 1; reads 2–20 must pass and 21 must fail.
+for read_number in $(seq 2 20); do
+  status=$(curl -sS -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Hotice-Media $media_token" "$BASE$media_path")
+  test "$status" = '200'
+done
+status=$(curl -sS -o /dev/null -w '%{http_code}' \
+  -H "Authorization: Hotice-Media $media_token" "$BASE$media_path")
+test "$status" = '401'
 # Grants are bound to the issuing session; revoking that session denies future reads.
 second_token=$(curl -fsS -H 'Content-Type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" "$BASE/v1/auth/login" | jq -er '.accessToken')
 SECOND_AUTH="Authorization: Bearer $second_token"
@@ -149,7 +159,7 @@ $events = array_column($q->fetchAll(), "amount", "event_code");
 if ((int)($events["grant_issued"] ?? 0) !== 2 || (int)($events["content_served"] ?? 0) !== 1) exit(1);
 $q = $db->prepare("SELECT access_count FROM media_access_grants WHERE token_sha256=?");
 $q->execute([hash("sha256", $argv[2])]);
-if ((int)$q->fetchColumn() !== 1) exit(1);
+if ((int)$q->fetchColumn() !== 20) exit(1);
 ' "$file" "$media_token"
 curl -fsS -H "$AUTH" "$BASE/v1/files/$file" -o /tmp/hotice-ci-download.png
 cmp /tmp/hotice-ci-test.png /tmp/hotice-ci-download.png
