@@ -645,69 +645,75 @@ class _AvatarsPageState extends State<AvatarsPage> {
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(avatar.name, style: Theme.of(ctx).textTheme.headlineMedium),
-                const SizedBox(height: 8),
-                const Text('Reusable character identity card · Text-only demo'),
-                const SizedBox(height: 16),
-                SelectableText(card),
-                const SizedBox(height: 16),
-                const DemoNotice(
-                  'HOTICE can add these notes to demo video prompts. Real 3D scanning, facial matching and provider-specific references are not active.',
-                ),
-                const SizedBox(height: 14),
-                Text('Saved face references: '
-                    '${widget.store.avatarPackFor(avatar.name).assets.length} '
-                    '(encrypted on this device)'),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: () => exportActorBackup(avatar),
-                  icon: const Icon(Icons.lock_outline),
-                  label: const Text('Create encrypted portable backup'),
-                ),
-                for (final photo in widget.store.avatarPackFor(avatar.name).assets)
-                  ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    leading: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: EncryptedFacePhotoPreview(
-                        path: photo.localPath,
-                        accountScope: widget.store.selectedWorkspaceId,
-                        width: 56,
-                        height: 68,
-                        semanticLabel:
-                            '${photo.view?.label ?? 'Unspecified view'} saved face reference',
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(avatar.name, style: Theme.of(ctx).textTheme.headlineMedium),
+                  const SizedBox(height: 8),
+                  const Text('Reusable character identity card · Text-only demo'),
+                  const SizedBox(height: 16),
+                  SelectableText(card),
+                  const SizedBox(height: 16),
+                  const DemoNotice(
+                    'HOTICE can add these notes to demo video prompts. Real 3D scanning, facial matching and provider-specific references are not active.',
+                  ),
+                  const SizedBox(height: 14),
+                  Text('Saved face references: '
+                      '${widget.store.avatarPackFor(avatar.name).assets.length} '
+                      '(encrypted on this device)'),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => exportActorBackup(avatar),
+                    icon: const Icon(Icons.lock_outline),
+                    label: const Text('Create encrypted portable backup'),
+                  ),
+                  for (final photo in widget.store.avatarPackFor(avatar.name).assets)
+                    ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: EncryptedFacePhotoPreview(
+                          path: photo.localPath,
+                          accountScope: widget.store.selectedWorkspaceId,
+                          width: 56,
+                          height: 68,
+                          semanticLabel:
+                              '${photo.view?.label ?? 'Unspecified view'} saved face reference',
+                        ),
+                      ),
+                      title: Text(photo.view?.label ?? 'Reference'),
+                      subtitle: const Text('Unverified face photo'),
+                      trailing: IconButton(
+                        tooltip: 'Remove this reference',
+                        icon: const Icon(Icons.delete_outline),
+                        onPressed: () {
+                          if (widget.store.removeAvatarReference(
+                            avatar.name,
+                            photo.id,
+                          )) {
+                            setSheetState(() {});
+                          }
+                        },
                       ),
                     ),
-                    title: Text(photo.view?.label ?? 'Reference'),
-                    subtitle: const Text('Unverified face photo'),
-                    trailing: IconButton(
-                      tooltip: 'Remove this reference',
-                      icon: const Icon(Icons.delete_outline),
-                      onPressed: () {
-                        widget.store.removeAvatarReference(avatar.name, photo.id);
-                        Navigator.pop(ctx);
-                      },
-                    ),
+                  const SizedBox(height: 14),
+                  FilledButton.icon(
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: card));
+                      if (ctx.mounted) Navigator.pop(ctx);
+                    },
+                    icon: const Icon(Icons.copy_rounded),
+                    label: const Text('Copy identity notes'),
                   ),
-                const SizedBox(height: 14),
-                FilledButton.icon(
-                  onPressed: () async {
-                    await Clipboard.setData(ClipboardData(text: card));
-                    if (ctx.mounted) Navigator.pop(ctx);
-                  },
-                  icon: const Icon(Icons.copy_rounded),
-                  label: const Text('Copy identity notes'),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
