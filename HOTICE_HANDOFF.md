@@ -499,6 +499,7 @@ Before stopping, state the exact next action. If blocked, state the missing inpu
 | [#11](https://github.com/parmtech/HOTICE/pull/11) | HOTICE Inspiration Library, Actors and Namecheap web foundation | feat/actors-web-studio-v1 | main | e4913b55c4b72291c1ba4e9dd4c4c9694721ffa6 |
 
 | [#71](https://github.com/parmtech/HOTICE/pull/71) | feat(media): add short-lived session-bound media grants | feat/media-short-lived-access | perf/media-scan-retry-scheduler (#62) | 193feb89b559207f9a1f0ebeaa5912be9d8f69fb |
+| [#80](https://github.com/parmtech/HOTICE/pull/80) | fix(media): prevent overlapping scanner batches | feat/media-upload-recovery-hardening | feat/media-short-lived-access (#71) | eb4a1dff4e7a502eec36b300bf49a0fc89c6d5fe |
 
 ## Appendix 2. CI runs observed during this documentation update
 
@@ -589,3 +590,18 @@ Repository references: [release issue #33](https://github.com/parmtech/HOTICE/is
   it with commit `8d01b0c` CI once available, then continue the next blueprint
   gap. Keep release
   NOT READY TO PUBLISH until all release gates pass.
+
+## Latest continuation: media scanner overlap protection
+
+- PR #80 (`feat/media-upload-recovery-hardening`) is a draft child of #71. It
+  adds a database-scoped MySQL advisory lock so concurrent cPanel cron runs do
+  not duplicate ClamAV scan batches; a concurrent run returns `status=busy`.
+  Exact-head source is `eb4a1dff4e7a502eec36b300bf49a0fc89c6d5fe`.
+- Added a MySQL-backed integration case that holds the scanner lock and checks
+  the overlapping CLI invocation returns busy. Local `bash -n` and whitespace
+  checks passed. PHP/MySQL are unavailable locally; exact-head backend CI is
+  still required. No real hosting or malware scanner was used.
+- PR #79's improved truthful save status is at `8d01b0ca20a99250fb699aa18b70b2e5983fc727`;
+  local 75 tests and analysis passed, but exact-head run 41686301713 is queued.
+- Keep PR #80 draft and release NOT READY TO PUBLISH until backend CI and the
+  wider release gates pass.
