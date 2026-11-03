@@ -98,6 +98,19 @@ void main() {
     );
   });
 
+  test('encrypted photo cannot be moved to another reference ID', () async {
+    final source = File('${root.path}/source.jpg');
+    await source.writeAsBytes([0xff, 0xd8, 0xff, 1, 2, 3]);
+    final stored = await vault.encryptPhoto(source, referenceId: idA);
+    await File(stored.path).copy('${root.path}/$idB.aes');
+
+    await expectLater(
+      vault.decryptPhoto('${root.path}/$idB.aes'),
+      throwsA(isA<FaceReferenceVaultException>()),
+    );
+    expect(await vault.decryptPhoto(stored.path), [0xff, 0xd8, 0xff, 1, 2, 3]);
+  });
+
   test(
     'deletes only unreferenced generated encrypted blobs and temp files',
     () async {

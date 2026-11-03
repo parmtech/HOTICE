@@ -45,7 +45,7 @@ class FaceReferenceVault {
   static final _idPattern = RegExp(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
   );
-  static final _header = <int>[...ascii.encode('HOTICE-FACE-REF'), 1, 0];
+  static final _header = <int>[...ascii.encode('HOTICE-FACE-REF'), 2, 0];
 
   static Future<FaceReferenceVault> openOnDevice() async {
     if (!Platform.isAndroid && !Platform.isIOS) {
@@ -193,6 +193,7 @@ class FaceReferenceVault {
       clear,
       secretKey: SecretKey(await _key()),
       nonce: _cipher.newNonce(),
+      aad: _authenticatedMetadata(referenceId),
     );
     final output = BytesBuilder(copy: false)
       ..add(_header)
@@ -259,6 +260,7 @@ class FaceReferenceVault {
       final clear = await _cipher.decrypt(
         SecretBox(cipherText, nonce: nonce, mac: Mac(mac)),
         secretKey: SecretKey(await _key()),
+        aad: _authenticatedMetadata(id),
       );
       if (_detectImageMime(clear) == null) {
         throw const FaceReferenceVaultException('Decrypted photo is invalid.');
@@ -330,6 +332,9 @@ class FaceReferenceVault {
     );
     return Platform.isWindows ? normalized.toLowerCase() : normalized;
   }
+
+  List<int> _authenticatedMetadata(String id) =>
+      List<int>.unmodifiable([..._header, ...ascii.encode(id)]);
 
   static String? _detectImageMime(List<int> bytes) {
     if (bytes.length >= 3 &&
