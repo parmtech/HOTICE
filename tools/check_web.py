@@ -103,6 +103,13 @@ def main():
     assert "Security scan pending" in script and "withCredentials = false" in script
     assert "uploadXhr?.abort()" in script, "Users must be able to cancel active uploads"
     assert "reconcileMediaUpload" in script, "Ambiguous uploads must be checked before manual retry"
+    assert "loadCloudMedia" in script and "Refresh scan status" in script
+    assert "Security scan passed" in script and "Blocked by security scan" in script
+    assert "tokenType !== 'Hotice-Media'" in script and "Authorization: 'Hotice-Media '" in script
+    assert "grant.contentPath !== '/v1/media/' + file.id + '/content'" in script
+    assert "credentials: 'omit'" in script and "redirect: 'error'" in script
+    assert "revokeObjectURL(remotePreviewUrl)" in script, "Remote preview bytes must be released on teardown"
+    assert "cloudActionAllowed(true) || !window.confirm('Remove this file" in script
     assert "Upload as separate cloud copy" in script, "Revision conflicts must keep local work recoverable"
     assert "'/v1/projects/' + encodeURIComponent(id)" in script
     assert "actorStorageKey" in script

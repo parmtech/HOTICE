@@ -20,6 +20,8 @@ const mockJobRequests = [];
 const mockQuoteRequests = [];
 const projectRequests = [];
 const mediaUploadRequests = [];
+const mediaGrantRequests = [];
+const cloudFileBytes = new Map();
 const apiEvents = [];
 let pageOrigin;
 let conflictProjectId = null;
@@ -50,7 +52,7 @@ const api = http.createServer((req, res) => {
   res.setHeader('Vary', 'Origin');
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Authorization, Content-Type, Idempotency-Key',
       'Access-Control-Max-Age': '600',
     });
@@ -68,7 +70,7 @@ const api = http.createServer((req, res) => {
     if (url.pathname === '/v1/auth/login' && req.method === 'POST') {
       return json(res, 200, {accessToken: token, tokenType: 'Bearer'});
     }
-    if (req.headers.authorization !== 'Bearer ' + token) {
+    if (req.headers.authorization !== 'Bearer ' + token && !/^\/v1\/media\/[0-9a-f-]{36}\/content$/i.test(url.pathname)) {
       return json(res, 401, {error: 'Authentication required.'});
     }
     const uploadMatch = url.pathname.match(/^\/v1\/projects\/([0-9a-f-]{36})\/files\/([0-9a-f-]{36})$/i);
@@ -80,8 +82,38 @@ const api = http.createServer((req, res) => {
       if (project.files.some((file) => file.id === uploadMatch[2])) return json(res, 409, {error: 'Duplicate media id'});
       const file = {id: uploadMatch[2], mime: 'video/mp4', byte_size: raw.length, scan_status: 'pending'};
       project.files.push(file);
+      cloudFileBytes.set(file.id, Buffer.from(raw));
       mediaUploadRequests.push({path: url.pathname, bytes: raw, authorized: true, contentType: req.headers['content-type']});
       return json(res, 201, {id: file.id, byteSize: raw.length, sha256: 'synthetic-sha256', mime: file.mime, scanStatus: 'pending'});
+    }
+    const grantMatch = url.pathname.match(/^\/v1\/files\/([0-9a-f-]{36})\/access-grants$/i);
+    if (grantMatch && req.method === 'POST') {
+      mediaGrantRequests.push({id: grantMatch[1], authorized: true});
+      const file = [...cloudProjects.values()].flatMap((project) => project.files).find((item) => item.id === grantMatch[1]);
+      if (!file) return json(res, 404, {error: 'Media not found'});
+      if (file.scan_status !== 'clean') return json(res, 423, {error: 'Security scan pending'});
+      return json(res, 201, {accessToken: 'b'.repeat(64), tokenType: 'Hotice-Media', contentPath: '/v1/media/' + file.id + '/content', expiresAt: new Date(Date.now() + 120000).toISOString()});
+    }
+    const contentMatch = url.pathname.match(/^\/v1\/media\/([0-9a-f-]{36})\/content$/i);
+    if (contentMatch && req.method === 'GET') {
+      if (req.headers.authorization !== 'Hotice-Media ' + 'b'.repeat(64)) return json(res, 401, {error: 'Grant required'});
+      const bytes = cloudFileBytes.get(contentMatch[1]);
+      if (!bytes) return json(res, 404, {error: 'Media not found'});
+      res.writeHead(200, {'Access-Control-Allow-Origin': pageOrigin, 'Vary': 'Origin', 'Cache-Control': 'no-store', 'Content-Type': 'video/mp4', 'Content-Length': bytes.length});
+      return res.end(bytes);
+    }
+    const fileDeleteMatch = url.pathname.match(/^\/v1\/files\/([0-9a-f-]{36})$/i);
+    if (fileDeleteMatch && req.method === 'DELETE') {
+      let found = false;
+      for (const project of cloudProjects.values()) {
+        project.files = project.files.filter((file) => {
+          if (file.id !== fileDeleteMatch[1]) return true;
+          found = true;
+          return false;
+        });
+      }
+      cloudFileBytes.delete(fileDeleteMatch[1]);
+      return found ? json(res, 200, {deleted: true, queuedMediaFiles: 0}) : json(res, 404, {error: 'Media not found'});
     }
 
     try { body = raw.length ? JSON.parse(raw.toString('utf8')) : null; } catch (_) { return json(res, 400, {error: 'Invalid JSON'}); }
@@ -119,7 +151,7 @@ const api = http.createServer((req, res) => {
       const project = cloudProjects.get(match[1]);
       if (project) {
         const {files, ...projectData} = project;
-        return json(res, 200, {project: projectData, files});
+        return json(res, 200, {project: projectData, files: files.map(({bytes, ...file}) => file)});
       }
       return json(res, 404, {error: 'Not found'});
     }
@@ -315,11 +347,23 @@ async function main() {
     assert.equal(cloudProjects.size, 1);
     assert.match(cloudProjects.values().next().value.document.scenes[0].prompt, /red paper kite/);
 
+    const oversizedVideo = Buffer.alloc(20 * 1024 * 1024 + 1, 1);
+    await page.locator('#clipsInput').setInputFiles({name: 'oversized.mp4', mimeType: 'video/mp4', buffer: oversizedVideo});
+    await page.locator('#clipTimeline').getByRole('button', {name: 'Upload oversized.mp4 to cloud'}).click();
+    await page.getByText(/no larger than 20 MiB/i).waitFor();
+    assert.equal(mediaUploadRequests.length, 0, 'oversized media is rejected before network upload');
+    await page.locator('#deleteClip').click();
+
     const syntheticVideo = Buffer.from('synthetic mp4 payload');
     await page.locator('#clipsInput').setInputFiles({name: 'synthetic.mp4', mimeType: 'video/mp4', buffer: syntheticVideo});
     const uploadButton = page.getByRole('button', {name: 'Upload synthetic.mp4 to cloud'});
     await uploadButton.waitFor();
     assert.equal(await uploadButton.isDisabled(), false, 'upload requires consent, active entitlement and a linked project');
+    await page.locator('#cloudSyncConsent').uncheck();
+    assert.equal(await uploadButton.isDisabled(), true, 'revoking consent disables media upload');
+    assert.equal(mediaUploadRequests.length, 0, 'revoked consent prevents file transfer');
+    await page.locator('#cloudSyncConsent').check();
+    assert.equal(await uploadButton.isDisabled(), false, 'explicit consent restores eligible upload');
     await page.evaluate(() => { window.confirm = () => true; });
     await uploadButton.click();
     await page.getByText(/Uploaded privately\. Security scan pending/).waitFor();
@@ -329,6 +373,37 @@ async function main() {
     assert.equal(mediaUploadRequests[0].contentType, 'application/octet-stream');
     assert.equal([...cloudProjects.values()][0].files[0].scan_status, 'pending');
     assert.equal(mockJobRequests[0].body.request.prompt.includes('synthetic.mp4'), false, 'media is not attached to mock generation');
+
+    await page.locator('#loadCloudProjects').click();
+    const cloudMediaCard = page.locator('#cloudProjects .project-card').filter({hasText: 'Local sync dry run'}).first();
+    await cloudMediaCard.getByRole('button', {name: 'View secure media'}).click();
+    await cloudMediaCard.getByText('Security scan pending').waitFor();
+    assert.equal(await cloudMediaCard.getByRole('button', {name: 'Secure preview'}).count(), 0, 'pending media cannot be previewed');
+    assert.equal(await mediaGrantRequests.length, 0, 'pending scan must not request a media grant');
+    [...cloudProjects.values()][0].files[0].scan_status = 'blocked';
+    await cloudMediaCard.getByRole('button', {name: 'Refresh scan status'}).click();
+    await cloudMediaCard.getByText('Blocked by security scan').waitFor();
+    assert.equal(await cloudMediaCard.getByRole('button', {name: 'Secure preview'}).count(), 0, 'blocked media cannot be previewed');
+    [...cloudProjects.values()][0].files[0].scan_status = 'clean';
+    await cloudMediaCard.getByRole('button', {name: 'Refresh scan status'}).click();
+    await cloudMediaCard.getByText('Security scan passed').waitFor();
+    await cloudMediaCard.getByRole('button', {name: 'Secure preview'}).click();
+    await page.getByText(/Secure preview ready/).waitFor();
+    assert.equal(mediaGrantRequests.length, 1, 'clean preview requests one short-lived access grant');
+    assert.match(await page.locator('#previewVideo').evaluate((element) => element.currentSrc), /^blob:/, 'media is fetched through the grant and previewed from a temporary object URL');
+    await page.locator('#cloudSyncConsent').uncheck();
+    assert.equal(await page.locator('#previewVideo').getAttribute('src'), null, 'revoking consent clears the remote preview source');
+    assert.equal(await cloudMediaCard.locator('.cloud-media-list').count(), 0, 'revoking consent clears cloud media metadata from the page');
+    await page.locator('#cloudSyncConsent').check();
+    await cloudMediaCard.getByRole('button', {name: 'View secure media'}).click();
+    await cloudMediaCard.getByText('Security scan passed').waitFor();
+    await page.evaluate(() => { window.confirm = () => true; });
+    await cloudMediaCard.getByRole('button', {name: 'Remove cloud file'}).click();
+    await page.getByText('Cloud file removed and quota updated. Device-local originals remain available.').waitFor();
+    assert.deepEqual([...cloudProjects.values()][0].files, [], 'cloud file row is removed');
+    assert.equal(cloudFileBytes.size, 0, 'cloud delete removes the fixture bytes');
+    assert.match(await cloudMediaCard.innerText(), /No cloud media is stored in this project/);
+    assert.equal(await page.locator('#clipTimeline').getByRole('button', {name: 'Upload synthetic.mp4 to cloud'}).count(), 1, 'deleting cloud media preserves the device-local clip and upload option');
 
     await page.locator('#scenePrompt').fill('This local edit must survive an optimistic-lock conflict.');
     await page.locator('#saveSceneDraft').click();
@@ -376,6 +451,7 @@ async function main() {
         'entitled account loads cloud list',
         'first cloud upload is authenticated',
         'explicit selected media upload sends exact bytes to private route and reports pending scan',
+        'project media list shows scan state, blocks pending previews, uses short-lived grants after clean scan, and deletes cloud bytes without deleting local media',
         'revision conflict preserves local project',
         'separate cloud copy preserves both versions',
         'a second device downloads a cloud project into its own local storage',
