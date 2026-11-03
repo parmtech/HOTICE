@@ -38,8 +38,18 @@ test('passes healthy API and denies every protected path probe', async () => {
   });
   assert.equal(result.ok, true, result.failures.join('\n'));
   assert.equal(requests.length, result.checkedPaths + 2);
-  assert.ok(requests.every(({ options }) => options.method === 'GET' && options.redirect === 'manual' && options.signal instanceof AbortSignal));
-  assert.ok(requests.some(({ url }) => url.includes('/%2e%2e%2fconfig.php')));
+  assert.ok(requests.every(({ options }) =>
+    options.method === 'GET' && options.redirect === 'manual' && options.signal instanceof AbortSignal));
+  for (const protectedAlias of [
+    '/%2e%2e%2fconfig.php',
+    '/%2e%2e%2fbackend%2fconfig.php',
+    '/%252e%252e%252fconfig.php',
+    '/backend%2fconfig.php',
+    '/.env',
+    '/.git/config',
+    '/backend/.user.ini',
+    '/private-media/.htaccess',
+  ]) assert.ok(requests.some(({ url }) => url.endsWith(protectedAlias)), `missing probe: ${protectedAlias}`);
 });
 
 test('aborts a request that exceeds its deadline and validates timeout bounds', async () => {

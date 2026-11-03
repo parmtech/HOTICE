@@ -15,6 +15,22 @@ const SECRET_PATHS = [
   '/backend/bin/install.php',
   '/backend/private-media/',
   '/%2e%2e%2fconfig.php',
+  '/%2e%2e%2fbackend%2fconfig.php',
+  '/%252e%252e%252fconfig.php',
+  '/%2e%2e%5cconfig.php',
+  '/..%2fbackend%2fconfig.php',
+  '/backend%2fconfig.php',
+  '/backend%252fconfig.php',
+  '/.env',
+  '/.git/config',
+  '/.htaccess',
+  '/.user.ini',
+  '/backend/.env',
+  '/backend/.git/config',
+  '/backend/.htaccess',
+  '/backend/.user.ini',
+  '/private-media/.htaccess',
+  '/private-media/index.php',
 ];
 
 function deploymentOrigin(input) {
