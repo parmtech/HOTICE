@@ -19,6 +19,7 @@ const mockJobs = new Map();
 const mockJobRequests = [];
 const mockQuoteRequests = [];
 const projectRequests = [];
+const mediaUploadRequests = [];
 const apiEvents = [];
 let pageOrigin;
 let conflictProjectId = null;
@@ -57,12 +58,12 @@ const api = http.createServer((req, res) => {
   }
   if (req.headers.origin !== pageOrigin) return res.writeHead(403).end();
 
-  let raw = '';
-  req.on('data', (chunk) => { raw += chunk; });
+  const chunks = [];
+  req.on('data', (chunk) => { chunks.push(chunk); });
   req.on('end', () => {
+    const raw = Buffer.concat(chunks);
     const url = new URL(req.url, 'http://127.0.0.1');
     let body = null;
-    try { body = raw ? JSON.parse(raw) : null; } catch (_) { return json(res, 400, {error: 'Invalid JSON'}); }
 
     if (url.pathname === '/v1/auth/login' && req.method === 'POST') {
       return json(res, 200, {accessToken: token, tokenType: 'Bearer'});
@@ -70,6 +71,20 @@ const api = http.createServer((req, res) => {
     if (req.headers.authorization !== 'Bearer ' + token) {
       return json(res, 401, {error: 'Authentication required.'});
     }
+    const uploadMatch = url.pathname.match(/^\/v1\/projects\/([0-9a-f-]{36})\/files\/([0-9a-f-]{36})$/i);
+    if (uploadMatch && req.method === 'PUT') {
+      if (req.headers['content-type'] !== 'application/octet-stream') return json(res, 415, {error: 'Unsupported media type'});
+      if (raw.length > 20 * 1024 * 1024) return json(res, 413, {error: 'Too large'});
+      const project = cloudProjects.get(uploadMatch[1]);
+      if (!project) return json(res, 404, {error: 'Project not found'});
+      if (project.files.some((file) => file.id === uploadMatch[2])) return json(res, 409, {error: 'Duplicate media id'});
+      const file = {id: uploadMatch[2], mime: 'video/mp4', byte_size: raw.length, scan_status: 'pending'};
+      project.files.push(file);
+      mediaUploadRequests.push({path: url.pathname, bytes: raw, authorized: true, contentType: req.headers['content-type']});
+      return json(res, 201, {id: file.id, byteSize: raw.length, sha256: 'synthetic-sha256', mime: file.mime, scanStatus: 'pending'});
+    }
+
+    try { body = raw.length ? JSON.parse(raw.toString('utf8')) : null; } catch (_) { return json(res, 400, {error: 'Invalid JSON'}); }
     if (url.pathname === '/v1/auth/logout' && req.method === 'POST') return json(res, 200, {ok: true});
     if (url.pathname === '/v1/me' && req.method === 'GET') {
       return json(res, 200, {
@@ -102,7 +117,11 @@ const api = http.createServer((req, res) => {
     if (match && req.method === 'GET') {
       projectRequests.push({method: req.method, path: url.pathname, authorized: true});
       const project = cloudProjects.get(match[1]);
-      return project ? json(res, 200, {project}) : json(res, 404, {error: 'Not found'});
+      if (project) {
+        const {files, ...projectData} = project;
+        return json(res, 200, {project: projectData, files});
+      }
+      return json(res, 404, {error: 'Not found'});
     }
     if (match && req.method === 'PUT') {
       projectRequests.push({method: req.method, path: url.pathname, authorized: true, body});
@@ -124,6 +143,7 @@ const api = http.createServer((req, res) => {
         title: body.title,
         revision: (existing?.revision || 0) + 1,
         document: body.document,
+        files: existing?.files || [],
         updated_at: new Date().toISOString(),
       };
       cloudProjects.set(id, project);
@@ -295,6 +315,21 @@ async function main() {
     assert.equal(cloudProjects.size, 1);
     assert.match(cloudProjects.values().next().value.document.scenes[0].prompt, /red paper kite/);
 
+    const syntheticVideo = Buffer.from('synthetic mp4 payload');
+    await page.locator('#clipsInput').setInputFiles({name: 'synthetic.mp4', mimeType: 'video/mp4', buffer: syntheticVideo});
+    const uploadButton = page.getByRole('button', {name: 'Upload synthetic.mp4 to cloud'});
+    await uploadButton.waitFor();
+    assert.equal(await uploadButton.isDisabled(), false, 'upload requires consent, active entitlement and a linked project');
+    await page.evaluate(() => { window.confirm = () => true; });
+    await uploadButton.click();
+    await page.getByText(/Uploaded privately\. Security scan pending/).waitFor();
+    assert.equal(mediaUploadRequests.length, 1);
+    assert.deepEqual(mediaUploadRequests[0].bytes, syntheticVideo, 'raw file bytes reach only the authenticated media route');
+    assert.equal(mediaUploadRequests[0].authorized, true);
+    assert.equal(mediaUploadRequests[0].contentType, 'application/octet-stream');
+    assert.equal([...cloudProjects.values()][0].files[0].scan_status, 'pending');
+    assert.equal(mockJobRequests[0].body.request.prompt.includes('synthetic.mp4'), false, 'media is not attached to mock generation');
+
     await page.locator('#scenePrompt').fill('This local edit must survive an optimistic-lock conflict.');
     await page.locator('#saveSceneDraft').click();
     await page.locator('#saveLocalProject').click();
@@ -340,6 +375,7 @@ async function main() {
         'cloud controls disabled until login and consent',
         'entitled account loads cloud list',
         'first cloud upload is authenticated',
+        'explicit selected media upload sends exact bytes to private route and reports pending scan',
         'revision conflict preserves local project',
         'separate cloud copy preserves both versions',
         'a second device downloads a cloud project into its own local storage',

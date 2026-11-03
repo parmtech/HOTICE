@@ -1,5 +1,5 @@
 /* HOTICE client-side prototype. No network call except same-origin JSON catalog.
-   No media uploads, provider APIs, billing or hidden key access. */
+   Browser media uploads require explicit consent and use private authenticated storage. */
 (() => {
   'use strict';
   const get = (id) => document.getElementById(id);
@@ -325,6 +325,25 @@
       later.setAttribute('aria-label', 'Move clip later');
       later.addEventListener('click', () => shift(index, 1));
       controls.append(open, earlier, later);
+      if (clip.file) {
+        const upload = make('button', 'tool', clip.cloudFileId ? 'Uploaded · scan pending' :
+          clip.uploading ? 'Cancel upload' : 'Upload selected clip');
+        upload.type = 'button';
+        upload.disabled = Boolean(clip.cloudFileId || !clip.file || !accountToken ||
+          !projectConsent?.checked || !accountCanWriteCloud || !selectedProjectId ||
+          !localProjectCache?.some((project) => project.id === selectedProjectId && project.cloudId));
+        upload.setAttribute('aria-label', clip.cloudFileId
+          ? clip.name + ' uploaded; security scan pending'
+          : clip.uploading ? 'Cancel upload of ' + clip.name : 'Upload ' + clip.name + ' to cloud');
+        upload.addEventListener('click', () => clip.uploading
+          ? clip.uploadXhr?.abort() : uploadClipToCloud(clip));
+        controls.append(upload);
+        if (clip.uploadMessage) {
+          const uploadStatus = make('small', 'editor-note', clip.uploadMessage);
+          uploadStatus.setAttribute('role', 'status');
+          controls.append(uploadStatus);
+        }
+      }
       box.append(controls);
       list.append(box);
     });
@@ -350,7 +369,7 @@
         continue;
       }
       const url = URL.createObjectURL(file);
-      const clip = {id:++serial, name:file.name, url,
+      const clip = {id:++serial, name:file.name, file, url,
         start:0, end:0, duration:0, speed:1};
       clips.push(clip);
       // Probe duration without uploading the video anywhere.
@@ -521,6 +540,94 @@
       throw error;
     }
     return result;
+  }
+
+  async function uploadClipToCloud(clip) {
+    if (!clip.file || !cloudActionAllowed(true)) {
+      clip.uploadMessage = 'Sign in, confirm cloud consent and check the active storage entitlement.';
+      renderClips();
+      return;
+    }
+    const local = localProjectCache.find((project) => project.id === selectedProjectId);
+    if (!local?.cloudId) {
+      clip.uploadMessage = 'Save this project to your HOTICE cloud account first, then select it and retry.';
+      renderClips();
+      return;
+    }
+    const allowedTypes = new Set(['video/mp4', 'video/webm']);
+    if (!allowedTypes.has(clip.file.type) || clip.file.size < 1 || clip.file.size > 20 * 1024 * 1024) {
+      clip.uploadMessage = 'Choose a non-empty MP4 or WebM clip no larger than 20 MiB.';
+      renderClips();
+      return;
+    }
+    const fileId = crypto.randomUUID();
+    const confirmed = window.confirm('Upload “' + clip.name + '” (' +
+      (clip.file.size / 1048576).toFixed(1) + ' MiB) to the private HOTICE cloud copy of “' +
+      local.title + '”? Cloud storage use depends on your plan. The file will be unavailable until its security scan passes.');
+    if (!confirmed) return;
+    if (!cloudActionAllowed(true) || selectedProjectId !== local.id || local.cloudId === '') return;
+    const xhr = new XMLHttpRequest();
+    clip.uploadXhr = xhr;
+    clip.uploading = true;
+    clip.uploadMessage = 'Uploading 0%… Keep this page open; you can cancel.';
+    renderClips();
+    xhr.open('PUT', accountApiOrigin + '/v1/projects/' + encodeURIComponent(local.cloudId) +
+      '/files/' + encodeURIComponent(fileId), true);
+    xhr.withCredentials = false;
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.setRequestHeader('Authorization', 'Bearer ' + accountToken);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return;
+      clip.uploadMessage = 'Uploading ' + Math.min(100, Math.round(event.loaded * 100 / event.total)) + '%…';
+      renderClips();
+    };
+    xhr.onload = async () => {
+      clip.uploading = false;
+      clip.uploadXhr = null;
+      let result = null;
+      try { result = JSON.parse(xhr.responseText); } catch (_) { /* reconcile below */ }
+      if (xhr.status === 201 && result?.id === fileId && result.scanStatus === 'pending') {
+        clip.cloudFileId = fileId;
+        clip.uploadMessage = 'Uploaded privately. Security scan pending; this media cannot be used yet.';
+      } else if (xhr.status === 0 || xhr.status >= 500 || xhr.status === 201) {
+        await reconcileMediaUpload(clip, local, fileId);
+      } else {
+        clip.uploadMessage = xhr.status === 413
+          ? 'Cloud storage quota or file limit was reached. The local clip is unchanged.'
+          : xhr.status === 415 ? 'The server did not recognize this media format. The local clip is unchanged.'
+            : xhr.status === 403 ? 'Cloud upload is unavailable for this account. The local clip is unchanged.'
+              : 'Upload was rejected (HTTP ' + xhr.status + '). The local clip is unchanged.';
+      }
+      renderClips();
+    };
+    xhr.onerror = () => {
+      clip.uploading = false;
+      clip.uploadXhr = null;
+      reconcileMediaUpload(clip, local, fileId);
+    };
+    xhr.onabort = () => {
+      clip.uploading = false;
+      clip.uploadXhr = null;
+      clip.uploadMessage = 'Upload canceled. The local clip remains on this device; check cloud files before retrying.';
+      renderClips();
+    };
+    xhr.send(clip.file);
+  }
+
+  async function reconcileMediaUpload(clip, local, fileId) {
+    // The server project file list resolves a lost response before exposing a manual retry.
+    try {
+      const remote = await accountApi('/v1/projects/' + encodeURIComponent(local.cloudId), {token: accountToken});
+      const file = Array.isArray(remote.files) && remote.files.find((item) => item.id === fileId);
+      if (file) {
+        clip.cloudFileId = fileId;
+        clip.uploadMessage = 'Upload confirmed from cloud project. Security scan status: ' + String(file.scan_status || 'pending') + '.';
+      } else clip.uploadMessage = 'Upload was not confirmed. Your local clip is unchanged; you may retry manually.';
+    } catch (_) {
+      clip.uploadMessage = 'Upload outcome is unknown. Check cloud project files before retrying; your local clip is unchanged.';
+    }
+    renderClips();
   }
 
   const accountPreferenceOptions = {
@@ -1049,6 +1156,7 @@
         if (Object.hasOwn(modelLimits, sceneDrafts[0].model)) get('sceneModel').value = sceneDrafts[0].model;
       }
       projectStatus('Opened locally. Changes remain on this device until you save again.');
+      renderClips();
     } catch (error) {
       projectStatus(error.message || 'Could not open this local project.');
     }
@@ -1142,7 +1250,9 @@
       project.cloudConflict = false;
       project.updatedAt = new Date().toISOString();
       await projectStore('readwrite', 'put', project);
+      selectedProjectId = project.id;
       await refreshLocalProjects();
+      renderClips();
       cloudProjectStatus('Cloud copy saved at revision ' + response.revision + '. Your local copy remains available on this device.');
     } catch (error) {
       if (error.status === 409) {
@@ -1220,8 +1330,12 @@
 
   get('saveLocalProject')?.addEventListener('click', saveLocalProject);
   projectConsent?.addEventListener('change', () => {
+    if (!projectConsent.checked) {
+      for (const clip of clips) if (clip.uploading) clip.uploadXhr?.abort();
+    }
     refreshCloudControls();
     refreshLocalProjects();
+    renderClips();
   });
   get('loadCloudProjects')?.addEventListener('click', loadCloudProjectList);
   refreshLocalProjects();
@@ -1282,6 +1396,8 @@
       refreshCloudControls();
       refreshMockControls();
       await refreshLocalProjects();
+      renderClips();
+      renderClips();
     } catch (error) {
       if (issuedToken && accountApiOrigin) {
         accountApi('/v1/auth/logout', {method: 'POST', token: issuedToken}).catch(() => {});
@@ -1421,6 +1537,7 @@
     accountCanWriteCloud = false;
     accountCanReadCloud = false;
     if (projectConsent) projectConsent.checked = false;
+    for (const clip of clips) if (clip.uploading) clip.uploadXhr?.abort();
     accountSignedIn.hidden = true;
     selectAccountForm('login');
     cloudProjectCache = [];
@@ -1428,6 +1545,7 @@
     get('mockJobs')?.replaceChildren();
     refreshCloudControls();
     refreshMockControls();
+    renderClips();
     if (token && accountApiOrigin) {
       fetch(accountApiOrigin + '/v1/auth/logout', {
         method: 'POST', mode: 'cors', credentials: 'omit', cache: 'no-store',
