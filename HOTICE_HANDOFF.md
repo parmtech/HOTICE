@@ -1,6 +1,6 @@
 # HOTICE — Master Product Blueprint and AI Handoff
 
-Updated: 3 November 2026 (Australia/Sydney). Repository: parmtech/HOTICE. Brand: HOTICE.
+Updated: 4 November 2026 (Australia/Sydney). Repository: parmtech/HOTICE. Brand: HOTICE.
 
 **Release decision: NOT READY TO PUBLISH.** This is the target product specification and executable development handoff, not a statement that its features already exist. “Perfect” means a consistently usable, secure, recoverable product that passes the gates below; it does not mean guaranteed AI output quality, identity consistency, availability or zero defects.
 
@@ -367,19 +367,19 @@ Mock success can close a specific mock test, not R07/R09/R15 or the product rele
 
 ## Y. Current evidence, branch preservation and next action
 
-Snapshot date: 3 November 2026. The inventory below was read from GitHub during this documentation task. It is not a merge plan or proof that all listed work exists together.
+Snapshot date: 4 November 2026. The inventory below was refreshed from GitHub during continuation. It is not a merge plan or proof that all listed work exists together.
 
 - The repository contains multiple open feature stacks. Main, provider, web/account, native and avatar branches differ. Existing README/handoff claims may be branch-specific and stale.
-- PR #32 contains avatar/reference and researched model work. Preserve it and verify actual attachment/runtime behavior before integration.
+- PR #32 contains the original avatar/reference and researched model work. It remains open at `f3571e3`; the integration candidate is now draft PR #86, stacked on PR #79 and based on PR #32 head `f3571e3` plus PR #79 head `8d01b0c`. Preserve both source PRs and verify attachment/runtime behavior before any integration decision.
 - PR #48 contains provider contracts, durable mock attempts and owner reconciliation. Its credits are simulated.
 - PR #53 now targets `main` as a reviewable web/account/mock-job integration root: its exact head is 62 commits ahead / 0 behind current `main`, merge preflight is clean, and all six exact-head checks pass. PR #51/#52 remain open as a parallel provider/browser/cPanel implementation; compare their behavior before closing or merging either stack. PR #54/#55/#57 remain children of #53.
 - PR #58/#59/#61 contain later native account/session/UX work. PR #55 is a separate local-persistence integration.
 - Actor vault source candidate: carry forward the PR #20 → #21 → #24 chain as the single implementation candidate; PR #22 is a mutually exclusive alternative and remains preserved. PR #24 exact-head CI run 40423323921 passed Flutter analysis/tests, Android APK, emulator smoke and static web checks. The candidate adds a serialized AES-GCM device vault and password-encrypted portable backups. It is 173 commits ahead and 54 behind current `main` (SHA `e310bc3`), so do not merge it directly. Port only after WP01 resolves stable account-ID binding and the vault migration/restore plan; current native workspace identity is email-like and may change.
-- Local account-data-lifecycle worktree was observed dirty at old head 3460581 with backend quarantine/scanner changes and untracked backend/bin/scan-media.php. Preserve and reconcile it with newer remote PR #57/#60/#62 before staging, resetting or publishing anything. These local edits were not validated by this documentation task.
+- The local account-data-lifecycle worktree remains dirty at `3460581` and 15 commits ahead of its configured remote, with edits in backend workflow/README/install/config/schema/App/integration tests plus untracked `backend/bin/scan-media.php`. Preserve it; reconcile with PR #57/#60/#62 before staging, resetting or publishing anything. No changes to that worktree were made here.
 - Native local checkout and remote PR head differed during inspection. Re-fetch and compare before use.
 - No current real-provider, real-payment, cPanel restore, signed iOS or physical-device acceptance proof was established by this task.
 
-Current CI observations and complete open-PR inventory follow below. Recheck both before implementation; a failed workflow remains failed until its actual cause is inspected and a subsequent applicable run passes.
+Current CI observations and open-PR inventory follow below. PR #60's initial APK artifact-resolution failure was retried on the unchanged exact head and the final client workflow passed. The PR #86 emulator run remains active at the time of this update; see the run table and recheck its terminal result before claiming all checks green.
 
 ## Z. Future AI execution prompt, state ledger and stop rules
 
@@ -410,6 +410,7 @@ Append one ledger row per meaningful unit; do not erase history:
 | Date | Packet/requirement | Branch + source SHA | Delivered behavior | Validation evidence | Remaining / next action |
 | --- | --- | --- | --- | --- | --- |
 | 2026-11-03 | Documentation request | docs/ready-to-publish-release-gates; see document commit | Canonical A–Z blueprint, resume contract and current PR/CI inventory | GitHub readback and documentation-only changed-path review | WP01 inventory/integration; all release gates still require candidate evidence |
+| 2026-11-04 | WP07 actor-reference archive integration | feat/avatar-reference-persistence; code `9dee7773e24f1e9407ad62a18403979a377dcf72`, handoff `b2ed67668ef5336b4719cc7f95bdd90187d1719e` (draft PR #86, stacked on #79) | Integrated PR #32's 2D reference engine with PR #79's encrypted device-local project archive; preserved source PRs | Local `flutter test --no-pub`: 124 passed; analyzer passed with informational lints; backend run 41718473309 passed; run 41718473425 client tests/web/inventory passed at update, APK/emulator still active | Recheck both emulator runs; user-controlled encrypted-media recovery, physical-device camera QA, true 3D and all release gates remain open |
 | 2026-11-03 | WP03 prompt authoring; WP09 prompt UX foundation only | feat/studio-responsive-ux-v2, c9c0f40f368fa7adf6854b32e307a07d429238bd (PR #61, stacked on PR #59) | Added three original editable scene prompt starters; selecting one fills the editor and does not save or submit a job | Local full Flutter suite: 62 tests passed, including 320px / 1.5× text-scale coverage; exact-head Flutter analysis/unit/widget job 125679914260, APK job 125680312352 and emulator job 125680312364 all PASSED in Actions run 41563665986; analyzer reported 28 info-level lints and no errors | Playable/licensed video examples and provider rendering remain open; continue WP01 full dependency DAG and stable account-ID/vault migration review before integration; release gates remain OPEN |
 | 2026-11-03 | WP09 web account and timeline accessibility UX | feat/web-account-accessibility-ux, 26c00c5982d17b7ec0f93c56941699fd9dbd10fb (PR #64, child of #63 → #53) | Added accessible password visibility controls and immediate account-flow focus; exposed timeline clips as a named list with selected state and preserved focus through selection, reorder and disabled-boundary fallback | Local `python tools/check_web.py`, Node syntax checks for site.js/e2e, and `git diff --check` passed; exact-head backend run 41567080240 passed PHP/core and MySQL/API/real-browser integration, including timeline selection/reorder/boundary assertions; all four Flutter/Android workflow jobs passed in 41567080344. An earlier run 41566843549 caught a mistaken test expectation for focus on a disabled control; boundary assertions were corrected | PR #64 remains draft. No live provider/payment calls or production release claim |
 | 2026-11-03 | WP08 local web timeline export | feat/web-local-video-export, b3cf9eabfa6d019dded7b0135bb5b2f08a033f69 (PR #65, child of #64 → #63 → #53) | Added local-only sequential export with trim/speed, 720p/1080p, fitted aspect ratio, source audio, progress/cancel, previous-download retention and a five-minute limit; fixed finite-duration metadata timing | Local syntax/static checks and Chromium dry run with synthetic VP8/Opus media: two-clip sequence, trim/speed, playable 720p output, non-silent output audio, downloaded bytes, cancellation retaining prior result, and zero HOTICE API calls. Exact-head backend run 41569335631 and all four client workflow jobs in 41569335705 passed, including a real Android emulator smoke test after a transient runner SDK archive failure was retried successfully | PR #65 remains draft. Chromium only; other browser/device support and large-file performance remain open; no live provider/payment calls or production claim |
@@ -425,10 +426,17 @@ Decision log template: decision ID; date; problem; considered options; chosen op
 Before stopping, state the exact next action. If blocked, state the missing input and continue independent work where possible. Do not repeatedly restate a blocker as progress. Do not replace the requested product with an easier mock-only objective.
 
 
-## Appendix 1. Open PR inventory observed on 3 November 2026
+## Appendix 1. Open PR inventory observed on 4 November 2026
 
 | PR | Work | Head branch | Base branch | Observed source SHA |
 | --- | --- | --- | --- | --- |
+| [#86](https://github.com/parmtech/HOTICE/pull/86) | Integrate encrypted avatar reference persistence with native local archive | feat/avatar-reference-persistence | feat/native-archive-save-health (#79) | b2ed67668ef5336b4719cc7f95bdd90187d1719e |
+| [#85](https://github.com/parmtech/HOTICE/pull/85) | feat(web): preflight cloud upload quota | feat/web-cloud-upload-quota-preflight | feat/web-cloud-storage-usage (#84) | 0faf88f36fc591cdece4812a3abe0cd9f2355593 |
+| [#84](https://github.com/parmtech/HOTICE/pull/84) | feat(web): show cloud storage usage | feat/web-cloud-storage-usage | feat/web-cloud-media-library (#83) | dd7877d53f0a4f3efbf93fb1e0de8ae7c5242f83 |
+| [#83](https://github.com/parmtech/HOTICE/pull/83) | feat(web): manage secure cloud media lifecycle | feat/web-cloud-media-library | feat/browser-cloud-media-upload (#82) | 4f83a6136ce2fdc87b8a225e41786d2b26f4905e |
+| [#82](https://github.com/parmtech/HOTICE/pull/82) | feat(web): add consent-based private media uploads | feat/browser-cloud-media-upload | feat/media-short-lived-access (#71) | 890bf026085f780d0ecb0e1c7fdd79563510e7b7 |
+| [#81](https://github.com/parmtech/HOTICE/pull/81) | feat(web): keep active mock job status current | feat/web-job-status-refresh | feat/web-local-project-sync (#47) | bd6bd2a3d283f619996615527b7c7ce468fdea11 |
+| [#80](https://github.com/parmtech/HOTICE/pull/80) | fix(media): prevent overlapping scanner batches | feat/media-upload-recovery-hardening | feat/media-short-lived-access (#71) | 4eb3c3df7a47b4631df055ccf20db3fa342f1941 |
 | [#62](https://github.com/parmtech/HOTICE/pull/62) | perf(backend): scheduled quarantine rescans with indexed retry and no queue starvation | perf/media-scan-retry-scheduler | fix/account-deletion-postcommit-safety | 74b6c3346ab2f7e558d8de61c44e3ab1fa8d540d |
 | [#61](https://github.com/parmtech/HOTICE/pull/61) | feat(ui): polish HOTICE responsive studio and correct local-storage UX | feat/studio-responsive-ux-v2 | fix/native-session-restore-resilience | c9c0f40f368fa7adf6854b32e307a07d429238bd |
 | [#60](https://github.com/parmtech/HOTICE/pull/60) | fix(account): preserve deletion success after post-commit media cleanup faults | fix/account-deletion-postcommit-safety | feat/account-data-lifecycle | c2d0a0f577fe7ed00ac5bb8ef70a58f7a80dfc65 |
@@ -475,12 +483,18 @@ Before stopping, state the exact next action. If blocked, state the missing inpu
 
 ## Appendix 2. CI runs observed during this documentation update
 
-These are workflow conclusions, not a substitute for examining individual test coverage. In particular PR #60 has a failed client workflow that must be diagnosed before integration.
+These workflow conclusions are not a substitute for examining individual test coverage. PR #60's prior client artifact-resolution failure was retried against the same head; the PR now records all four client checks as passed. PR #86 has an emulator job still running on the current branch head; recheck before making a complete CI claim.
 
 PR #65 is a draft child of #64. Its exact current head is `b3cf9ea`; the exact-head backend and client workflow runs below completed successfully. PR #66 is a draft child of #65 and its checks are initializing.
 
 | PR | Source SHA | Workflow/run | Observed state |
 | --- | --- | --- | --- |
+| #86 | b2ed67668ef5336b4719cc7f95bdd90187d1719e | [Backend run 41718473309](https://github.com/parmtech/HOTICE/actions/runs/41718473309), [Flutter/client run 41718473425](https://github.com/parmtech/HOTICE/actions/runs/41718473425) | Backend syntax/core and PHP/MySQL/browser integration passed; client inventory/SBOM, static web, Flutter analysis/tests passed; Android APK and emulator jobs were still in progress at the handoff update. |
+| #86 (code head) | 9dee7773e24f1e9407ad62a18403979a377dcf72 | [Backend run 41713719828](https://github.com/parmtech/HOTICE/actions/runs/41713719828), [Flutter/client run 41713719942](https://github.com/parmtech/HOTICE/actions/runs/41713719942) | Backend, Flutter analysis/tests, web, inventory and APK passed. Emulator smoke remained in progress for over 30 minutes; do not infer success from the running job. This head fixed a prior stale test label (`Avatar Studio` → `Actors Studio`). |
+| #85 | 0faf88f36fc591cdece4812a3abe0cd9f2355593 | [Flutter/client run 41698910103](https://github.com/parmtech/HOTICE/actions/runs/41698910103) | completed; success on the recorded head |
+| #84 | dd7877d53f0a4f3efbf93fb1e0de8ae7c5242f83 | [Flutter/client run 41698095222](https://github.com/parmtech/HOTICE/actions/runs/41698095222) | completed; success on the recorded head |
+| #83 | 4f83a6136ce2fdc87b8a225e41786d2b26f4905e | [Flutter/client run 41695089458](https://github.com/parmtech/HOTICE/actions/runs/41695089458) | completed; success on the recorded head |
+| #82 | 890bf026085f780d0ecb0e1c7fdd79563510e7b7 | [Flutter/client run 41693073772](https://github.com/parmtech/HOTICE/actions/runs/41693073772) | completed; success on the recorded head |
 | #66 | f4ced665c7ecbca4d0e6266c544284628a3b2782 | [CI checks](https://github.com/parmtech/HOTICE/pull/66) | Draft PR opened on top of #65; exact-head checks pending at handoff update; local Chromium synthetic-media/API dry run passed; no review threads yet |
 | #67 | d4cab850c2cb52ba470db5e368833b24732fa22c | [HOTICE PHP Backend Security & API / 41571849358](https://github.com/parmtech/HOTICE/actions/runs/41571849358), [Flutter validation and Android preview / 41571849258](https://github.com/parmtech/HOTICE/actions/runs/41571849258) | completed; all backend and Flutter/client jobs passed, including APK and Android emulator smoke. Local Chromium relink/export/API dry run passed |
 | #68 | 30b4f75c5988231479796528ffa9ed829ac06607 | [HOTICE PHP Backend Security & API / 41573241164](https://github.com/parmtech/HOTICE/actions/runs/41573241164), [Flutter validation and Android preview / 41573241204](https://github.com/parmtech/HOTICE/actions/runs/41573241204) | Backend run 41573241164 passed both jobs; static web and Flutter unit/analysis passed in 41573241204; APK setup and emulator smoke still active. Local Chromium auto-save/reload/exit-warning dry run passed; no live provider calls |
@@ -498,7 +512,7 @@ PR #65 is a draft child of #64. Its exact current head is `b3cf9ea`; the exact-h
 | #62 | 74b6c3346ab2f7e558d8de61c44e3ab1fa8d540d | [HOTICE PHP Backend Security & API / 41555572258](https://github.com/parmtech/HOTICE/actions/runs/41555572258) | completed; success |
 | #61 | 7727db10aef98480f7df58ea93a9aa86495c7964 | [Flutter validation and Android preview / 41556083953](https://github.com/parmtech/HOTICE/actions/runs/41556083953) | completed; success |
 | #60 | c2d0a0f577fe7ed00ac5bb8ef70a58f7a80dfc65 | [HOTICE PHP Backend Security & API / 41551862449](https://github.com/parmtech/HOTICE/actions/runs/41551862449) | completed; success |
-| #60 | c2d0a0f577fe7ed00ac5bb8ef70a58f7a80dfc65 | [Flutter validation and Android preview / 41551862532](https://github.com/parmtech/HOTICE/actions/runs/41551862532) | completed; failure |
+| #60 | c2d0a0f577fe7ed00ac5bb8ef70a58f7a80dfc65 | [Flutter validation and Android preview / 41551862532](https://github.com/parmtech/HOTICE/actions/runs/41551862532) | completed; all four client checks passed after retrying the transient Kotlin artifact-resolution failure on the unchanged head |
 | #59 | f0a0112ae3600ee3c02d369f3eb888e360a90331 | [Flutter validation and Android preview / 41549358327](https://github.com/parmtech/HOTICE/actions/runs/41549358327) | completed; success |
 | #58 | 25cf0651671f175cd5aac510fdb5155efafdf18a | [Flutter validation and Android preview / 40965359988](https://github.com/parmtech/HOTICE/actions/runs/40965359988) | completed; success |
 | #57 | 2bd2d5b69c915a2ea21ee506c3d0d01c273f0ba3 | [Flutter validation and Android preview / 40969383949](https://github.com/parmtech/HOTICE/actions/runs/40969383949) | completed; success |
