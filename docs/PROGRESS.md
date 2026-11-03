@@ -2,6 +2,47 @@
 
 > **Continuing HOTICE on another model?** First read [CONTINUE_HERE.md](CONTINUE_HERE.md) for the verified repo state, product decisions, blockers, and ordered next steps. Refresh the current branch and Actions status; this checklist may lag behind newer commits.
 
+## Integration checkpoint — 4 November 2026 (PR #86)
+
+- [x] PR #86 integrates PR #32's guided 2D reference engine with PR #79's encrypted device-local archive; both source PRs remain open and unchanged.
+- [x] Avatar/scene reference ownership and selected IDs persist in the encrypted archive; restore validates UUIDs, owners, formats, duplicate IDs and vault path suffixes. Photo cleanup is validated through the vault.
+- [x] Local `flutter test --no-pub` passes all 124 tests; `flutter analyze --no-pub --no-fatal-infos` passes with informational lints only.
+- [x] Exact-head backend, static web, Flutter analysis/tests, release inventory/SBOM and Android APK build passed for PR #86 head `9dee7773`; see [backend run 41713719828](https://github.com/parmtech/HOTICE/actions/runs/41713719828) and [client run 41713719942](https://github.com/parmtech/HOTICE/actions/runs/41713719942).
+- [ ] Android emulator smoke is still running in run 41713719942; verify terminal result. A previous run exposed and corrected a stale `Avatar Studio` assertion in the test.
+- [ ] Physical Android/iOS capture QA, user-controlled encrypted-media recovery, per-account cryptographic key separation and 3D reconstruction remain unverified/out of scope for this integration.
+
+See [CONTINUE_HERE.md](CONTINUE_HERE.md) for the exact branch, commit, run status and next actions. Release remains **NOT READY TO PUBLISH**.
+
+## Guided live face capture — 28 October 2026 (feature branch)
+
+- [x] On-device Camera2/NV21 + ML Kit face detection and 5-step auto-capture implementation with explicit consent, front-view open-eye checks, framing/head-pose/lighting heuristics, still revalidation and retake controls.
+- [x] Prominent Live face capture UI; capture photos are linked to the selected Actor as 2D reference assets in the encrypted device-local archive; app-owned temporary files are deleted through vault path validation on removal.
+- [x] Native camera permission generation and iOS 15.5 deployment/privacy configuration; unit tests for pose and eye-quality logic.
+- [ ] Physical Android/iOS scan accuracy, orientation calibration and camera-permission/lifecycle field QA. CI emulator smoke tests do not prove face scanning works.
+- [x] AES-GCM encrypted device vault and archive persistence for avatar/scene reference metadata, ownership and selected IDs. Device key means no cross-device recovery; this is not cryptographic per-account isolation.
+- [ ] User-controlled encrypted media recovery/export, actual multi-view 3D reconstruction and export, native model APIs and verified identity fidelity.
+
+## AI Model compatibility foundation — 28 October 2026 (feature branch)
+
+- [x] Source-backed provider-scoped catalog spanning video, image, script, speech and transcription candidate models; retired API endpoints fail closed.
+- [x] Exact task/role/duration/ratio/resolution validation with unknown media limits rejected. Static research is not considered an authorized live quote.
+- [x] Searchable Model Compatibility page linked from Settings and Normal Video.
+- [x] Expiring versioned trusted-backend manifest parser with exact format tuples and duplicate/unsupported-role rejection.
+- [x] Server-only PHP Google Omni/Runway text-video request envelope builders with secret isolation, fixed hosts and approval gates, plus CI policy tests.
+- [ ] Actual authenticated cPanel server API, key setup and live provider connectivity; production verified catalog, paid model probes, uploads, job queue, billing and end-to-end tests.
+
+See [API_MODEL_COMPATIBILITY.md](API_MODEL_COMPATIBILITY.md).
+
+## Smart reference work-in-progress — 28 October 2026 (feature branch)
+
+- [x] Typed smart reference selection engine in source with image/GLB capability gates, pose-aware scoring, manual locks, consent checks and account/project ownership validation.
+- [x] Avatar Studio manual front/side face photo tagging/import, scene image picker, generation reference preview, immutable reference IDs on drafts, and encrypted archive round-trip.
+- [x] Focused tests cover archive round-trip, invalid owner/path rejection, account isolation and avatar rename/delete reference lifecycle; current local Flutter suite passes.
+- [ ] Actual guided live camera scanning, landmark/eye checks, quality gating, trusted 3D reconstruction/export and secure long-lived avatar storage.
+- [ ] Verified vendor reference limits + server-side adapters, encrypted backend media, genuine AI rendering and likeness benchmarks.
+
+See [SMART_REFERENCE_ENGINE.md](SMART_REFERENCE_ENGINE.md) for exact supported behavior and privacy limitations. **Current changes are on a feature branch and not a production release.**
+
 ## Current verified snapshot — 26 October 2026
 - [x] **Flutter static analysis, unit/widget tests, static web validation, Android emulator smoke test, and Android debug APK build passed** on [Actions run 40246311392](https://github.com/parmtech/HOTICE/actions/runs/40246311392).
 - [x] Android **debug** APK artifact `HOTICE-Android-v0.2.0-run85` was compiled and uploaded in that run. It is not a production-signed APK. Emulator smoke passed; manual device QA remains open.

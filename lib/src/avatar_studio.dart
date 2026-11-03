@@ -1,11 +1,20 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'smart_references.dart';
+import 'live_face_capture.dart';
+import 'face_capture_quality.dart';
+import 'face_capture_storage.dart';
+import 'face_reference_vault.dart';
+import 'dart:io';
 import 'avatar_identity.dart';
 import 'design.dart';
 import 'state.dart';
 
-/// Local-only character workshop. The scan guide never requests the camera,
-/// captures a face, or constructs a 3D model. Those require later integrations.
+/// Local character workshop with separate guided live 2D camera capture.
+/// The five-pose illustration remains a design preview, not a mesh scanner.
 class AvatarsPage extends StatefulWidget {
   final HotIceStore store;
   const AvatarsPage({super.key, required this.store});
@@ -20,7 +29,52 @@ class _AvatarsPageState extends State<AvatarsPage> {
   String style = 'Photorealistic';
   String? editingName;
   bool showScanGuide = false;
+  bool showLiveCapture = false;
+  String? captureTarget;
   int poseIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_cleanAbandonedFaceCaptures());
+  }
+
+  Future<void> _cleanAbandonedFaceCaptures() async {
+    try {
+      final temporaryRoot = await getTemporaryDirectory();
+      final retainedPaths = widget.store.avatars
+          .expand((avatar) => widget.store.avatarPackFor(avatar.name).assets)
+          .where((asset) => asset.ownedTemporaryFile)
+          .map((asset) => asset.localPath)
+          .toList();
+      await deleteOrphanedFaceCaptureBatches(
+        temporaryRoot: temporaryRoot,
+        retainedPhotoPaths: retainedPaths,
+      );
+      await deleteAbandonedCameraCaptureFiles(
+        temporaryRoot: temporaryRoot,
+        androidLayout: Platform.isAndroid,
+        iosLayout: Platform.isIOS,
+      );
+      final vault = await FaceReferenceVault.openOnDevice();
+      await vault.deleteOrphanedFiles(retainedPaths: retainedPaths);
+    } catch (_) {
+      // Cleanup is best-effort; never block the user's Avatar Studio workflow.
+    }
+  }
+
+  Future<void> _removePickerCacheCopy(String path) async {
+    try {
+      await deletePickerCacheCopyIfOwned(
+        selectedFile: File(path),
+        temporaryRoot: await getTemporaryDirectory(),
+        androidLayout: Platform.isAndroid,
+        darwinLayout: Platform.isIOS,
+      );
+    } catch (_) {
+      // The OS may already have reclaimed a temporary picker copy.
+    }
+  }
 
   static const poses = <({String title, String hint, IconData icon})>[
     (title: 'Front portrait', hint: 'Even lighting, neutral expression and no face filters.', icon: Icons.face_outlined),
@@ -68,6 +122,7 @@ class _AvatarsPageState extends State<AvatarsPage> {
       style = avatar.style;
       identityNotes.text = avatar.identityNotes;
       showScanGuide = false;
+      showLiveCapture = false;
     });
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Edit the character in the form above.')),
@@ -99,6 +154,178 @@ class _AvatarsPageState extends State<AvatarsPage> {
     }
   }
 
+  Future<void> startRealCapture(StudioAvatar avatar) async {
+    if (widget.store.avatarPackFor(avatar.name).assets.length > 11) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Remove some previous photos before adding five more.'),
+      ));
+      return;
+    }
+    final photos = await Navigator.of(context).push<List<CapturedFacePhoto>>(
+      MaterialPageRoute(builder: (_) => const LiveFaceScanPage()),
+    );
+    if (photos == null || photos.isEmpty) return;
+    if (!mounted) {
+      for (final photo in photos) {
+        try { await File(photo.path).delete(); } catch (_) {}
+      }
+      return;
+    }
+    const viewByPose = <CapturePose, FaceView>{
+      CapturePose.front: FaceView.front,
+      CapturePose.left45: FaceView.left45,
+      CapturePose.right45: FaceView.right45,
+      CapturePose.left90: FaceView.left90,
+      CapturePose.right90: FaceView.right90,
+    };
+    var saved = 0;
+    for (final shot in photos) {
+      final success = widget.store.addAvatarReference(
+        avatar.name,
+        AvatarReference(
+          id: shot.id,
+          ownerName: avatar.name,
+          role: ReferenceRole.avatar,
+          format: ReferenceFormat.image,
+          mimeType: shot.mimeType,
+          localPath: shot.path,
+          view: viewByPose[shot.pose],
+          ownedTemporaryFile: true,
+          // These are 2D photos, never claim a verified 3D mesh.
+          isScanVerified: false,
+        ),
+      );
+      if (success) {
+        saved++;
+      } else {
+        try { await (await FaceReferenceVault.openOnDevice()).deletePhoto(shot.path); } catch (_) {}
+      }
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(saved.toString() +
+          ' guided 2D face references saved on this device. Not a 3D mesh.'),
+    ));
+  }
+
+  Future<void> importFacePhoto(StudioAvatar avatar) async {
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Encrypted face-photo storage is currently available on Android and iOS.'),
+      ));
+      return;
+    }
+    final view = await showModalBottomSheet<FaceView>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(title: Text('Label this face view'),
+                subtitle: Text('Choose the angle shown in your actual photo.')),
+            for (final angle in FaceView.values)
+              ListTile(
+                title: Text(angle.label),
+                onTap: () => Navigator.pop(ctx, angle),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || view == null) return;
+    final consent = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Import face reference?'),
+        content: const Text(
+          'This photo contains sensitive likeness data. HOTICE will retain '
+          'an encrypted copy in private storage on this device. The reference '
+          'records persist with this device local project archive and remain '
+          'linked to this Actor after restart. Media is not uploaded, backed up, '
+          'or recoverable on another device. This is not a verified 3D scan.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Choose photo')),
+        ],
+      ),
+    );
+    if (!mounted || consent != true) return;
+    String? selectedPickerPath;
+    try {
+      final file = await FilePicker.pickFile(type: FileType.image);
+      if (file == null) return;
+      selectedPickerPath = file.path;
+      if (!mounted) {
+        if (selectedPickerPath != null) {
+          await _removePickerCacheCopy(selectedPickerPath);
+        }
+        return;
+      }
+      final fileBytes = file.lengthSync() ?? await file.length();
+      if (!mounted) {
+        if (selectedPickerPath != null) {
+          await _removePickerCacheCopy(selectedPickerPath);
+        }
+        return;
+      }
+      final ext = (file.extension ?? '').toLowerCase();
+      final mime = switch (ext) {
+        'jpg' || 'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        _ => null,
+      };
+      final path = file.path;
+      if (mime == null || path == null || path.isEmpty ||
+          fileBytes == null || fileBytes <= 0 || fileBytes > 15 * 1024 * 1024) {
+        if (path != null && path.isNotEmpty) {
+          await _removePickerCacheCopy(path);
+        }
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Choose a JPG/PNG/WebP photo under 15 MB.'),
+        ));
+        return;
+      }
+      final id = createLocalProjectId();
+      late final StoredFaceReference encrypted;
+      try {
+        encrypted = await (await FaceReferenceVault.openOnDevice())
+            .encryptPhoto(File(path), referenceId: id);
+      } finally {
+        await _removePickerCacheCopy(path);
+      }
+      final saved = widget.store.addAvatarReference(avatar.name, AvatarReference(
+        id: encrypted.id,
+        ownerName: avatar.name,
+        role: ReferenceRole.avatar,
+        format: ReferenceFormat.image,
+        mimeType: encrypted.mimeType,
+        localPath: encrypted.path,
+        view: view,
+        ownedTemporaryFile: true,
+      ));
+      if (!saved) {
+        await (await FaceReferenceVault.openOnDevice())
+            .deletePhoto(encrypted.path);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(saved
+          ? '${view.label} reference added to this device encrypted Actor library.'
+          : 'Could not add reference. Check avatar and limit (16).')));
+    } catch (_) {
+      if (selectedPickerPath != null) {
+        await _removePickerCacheCopy(selectedPickerPath);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Image selection failed or was cancelled.'),
+      ));
+    }
+  }
+
   void openProfile(StudioAvatar avatar) {
     final card = AvatarPromptComposer.identityCard(avatar);
     showModalBottomSheet<void>(
@@ -122,6 +349,26 @@ class _AvatarsPageState extends State<AvatarsPage> {
                 const DemoNotice(
                   'HOTICE can add these notes to demo video prompts. Real 3D scanning, facial matching and provider-specific references are not active.',
                 ),
+                const SizedBox(height: 14),
+                Text('Saved face references: '
+                    '${widget.store.avatarPackFor(avatar.name).assets.length} '
+                    '(encrypted on this device)'),
+                for (final photo in widget.store.avatarPackFor(avatar.name).assets)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.photo_outlined),
+                    title: Text(photo.view?.label ?? 'Reference'),
+                    subtitle: const Text('Unverified face photo'),
+                    trailing: IconButton(
+                      tooltip: 'Remove this reference',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () {
+                        widget.store.removeAvatarReference(avatar.name, photo.id);
+                        Navigator.pop(ctx);
+                      },
+                    ),
+                  ),
                 const SizedBox(height: 14),
                 FilledButton.icon(
                   onPressed: () async {
@@ -152,7 +399,7 @@ class _AvatarsPageState extends State<AvatarsPage> {
             subtitle: 'Create once. Reuse the same character description across your shots.',
           ),
           const DemoNotice(
-            'Testing mode: character descriptions work as local presets. No face images, camera scans, biometric data or 3D meshes are collected or stored.',
+            'Beta: live guided multi-angle 2D capture is available on Android/iOS with consent. Accepted face photos use device-key AES-GCM encryption; reference records persist in the encrypted device-local project archive. Media is not backed up or synced. No 3D reconstruction or identity verification.'
           ),
           const SizedBox(height: 20),
           Wrap(
@@ -161,19 +408,71 @@ class _AvatarsPageState extends State<AvatarsPage> {
             children: [
               ChoiceChip(
                 avatar: const Icon(Icons.edit_note_rounded, size: 18),
-                label: const Text('Quick actor'),
-                selected: !showScanGuide,
-                onSelected: (_) => setState(() => showScanGuide = false),
+                label: const Text('Quick character'),
+                selected: !showScanGuide && !showLiveCapture,
+                onSelected: (_) => setState(() {
+                  showScanGuide = false;
+                  showLiveCapture = false;
+                }),
               ),
               ChoiceChip(
                 avatar: const Icon(Icons.face_retouching_natural_rounded, size: 18),
                 label: const Text('3D face-scan guide'),
                 selected: showScanGuide,
-                onSelected: (_) => setState(() => showScanGuide = true),
+                onSelected: (_) => setState(() {
+                  showScanGuide = true;
+                  showLiveCapture = false;
+                }),
+              ),
+              ChoiceChip(
+                avatar: const Icon(Icons.camera_front_outlined, size: 18),
+                label: const Text('Live face capture'),
+                selected: showLiveCapture,
+                onSelected: (_) => setState(() {
+                  showLiveCapture = true;
+                  showScanGuide = false;
+                }),
               ),
             ],
           ),
           const SizedBox(height: 16),
+          if (showLiveCapture) StudioPanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('On-device guided capture',
+                  style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 9),
+                const Text('Capture five face views with camera framing, head angles and eyes-open checks. This creates real 2D reference photos, not a 3D model. Temporary cache only.'),
+                const SizedBox(height: 16),
+                if (widget.store.avatars.isEmpty)
+                  const Text('Save a character below before scanning its face.'),
+                if (widget.store.avatars.isNotEmpty) ...[
+                  DropdownButtonFormField<String>(
+                    key: const ValueKey('scan-avatar-selector'),
+                    initialValue: widget.store.avatars.any((a) => a.name == captureTarget)
+                        ? captureTarget : widget.store.avatars.first.name,
+                    decoration: const InputDecoration(labelText: 'Attach to character'),
+                    items: [for (final avatar in widget.store.avatars)
+                      DropdownMenuItem(value: avatar.name, child: Text(avatar.name))],
+                    onChanged: (value) => setState(() => captureTarget = value),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: () {
+                      final chosen = widget.store.avatars.firstWhere(
+                        (a) => a.name == captureTarget,
+                        orElse: () => widget.store.avatars.first,
+                      );
+                      startRealCapture(chosen);
+                    },
+                    icon: const Icon(Icons.face_retouching_natural),
+                    label: const Text('Start live scanner'),
+                  ),
+                ],
+              ],
+            ),
+          ),
           if (showScanGuide) ...[
             StudioPanel(
               child: Column(
@@ -362,22 +661,30 @@ class _AvatarsPageState extends State<AvatarsPage> {
                   title: Text(avatar.name,
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                   subtitle: Text(avatar.style +
-                      ' · ' + (avatar.identityNotes.isEmpty
+                      ' · ${widget.store.avatarPackFor(avatar.name).assets.length} photos · ' +
+                      (avatar.identityNotes.isEmpty
                           ? 'Add identity notes later'
-                          : 'Identity notes ready for prompts')),
+                          : 'Identity notes ready')),
+
                   isThreeLine: false,
                   trailing: PopupMenuButton<String>(
                     tooltip: 'Character options',
                     onSelected: (action) {
-                      if (action == 'edit') {
+                      if (action == 'scan') {
+                        startRealCapture(avatar);
+                      } else if (action == 'import') {
+                        importFacePhoto(avatar);
+                      } else if (action == 'edit') {
                         startEditing(avatar);
                       } else if (action == 'delete') {
                         deleteAvatar(avatar);
                       }
                     },
                     itemBuilder: (ctx) => const [
-                      PopupMenuItem(value: 'edit', child: Text('Edit actor')),
-                      PopupMenuItem(value: 'delete', child: Text('Delete actor')),
+                      PopupMenuItem(value: 'scan', child: Text('Start live guided face capture')),
+                      PopupMenuItem(value: 'import', child: Text('Add face reference photo')),
+                      PopupMenuItem(value: 'edit', child: Text('Edit character')),
+                      PopupMenuItem(value: 'delete', child: Text('Delete character')),
                     ],
                   ),
                   onTap: () => openProfile(avatar),
