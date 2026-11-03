@@ -61,6 +61,7 @@ The tests cover encrypted restart restore, stable account-ID rebinding after an
 email change, encrypted schema 1 migration, demo/account isolation, all
 persisted scene draft settings, recovery from a damaged primary file, and
 fail-closed behavior when the device key is wrong. Profile-copy tests cover
-identity remapping, source preservation, excluded cloud retry state, consent,
-and zero API traffic. Physical-device keystore backup and restore acceptance
-remains a release gate.
+identity remapping, source preservation, excluded cloud retry state, rejection
+of ineligible source/destination workspaces, zero API traffic, and complete
+rollback when a copy would exceed the 2 MiB archive limit. Physical-device
+keystore backup and restore acceptance remains a release gate.
