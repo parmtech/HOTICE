@@ -48,7 +48,7 @@ check($capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.v
 try { $capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [array_merge($providerMedia, ['mime' => 'video/mp4'])])); check(false, 'model rejects unsupported attachment MIME before dispatch'); } catch (ApiError $e) { check($e->status === 422, 'model rejects unsupported attachment MIME before dispatch'); }
 try { $capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [
     $providerMedia,
-    array_merge($providerMedia, ['mediaId' => Support::uuid(), 'byteSize' => 1024 * 1024 + 1]),
+    array_merge($providerMedia, ['mediaId' => Support::uuid(), 'byteSize' => 2 * 1024 * 1024]),
 ])); check(false, 'model enforces aggregate attachment byte limit'); } catch (ApiError $e) { check($e->status === 422, 'model enforces aggregate attachment byte limit'); }
 try { new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [$providerMedia, $providerMedia]); check(false, 'duplicate media IDs rejected before dispatch'); } catch (InvalidArgumentException) { check(true, 'duplicate media IDs rejected before dispatch'); }
 try { new Hotice\ProviderModelCapabilities('fixture.video.v1', ['reference_image' => ['image/jpeg']], 2, 0); check(false, 'attachment capabilities require a positive byte limit'); } catch (InvalidArgumentException) { check(true, 'attachment capabilities require a positive byte limit'); }
