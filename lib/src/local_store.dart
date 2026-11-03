@@ -21,7 +21,7 @@ class HotIceLocalArchiveException implements Exception {
 /// A device-private and authenticated-encryption archive for SMALL project
 /// metadata/storyboards. This is not the generated media storage engine, the
 /// password vault, or the cloud sync client.
-enum LocalArchiveWriteState { saved, saving, failed }
+enum LocalArchiveWriteState { unsaved, saved, saving, failed }
 
 class HotIceLocalArchive extends ChangeNotifier {
   HotIceLocalArchive({required this.directory, required this.keyLoader});
@@ -30,10 +30,14 @@ class HotIceLocalArchive extends ChangeNotifier {
   final Future<List<int>> Function() keyLoader;
   final AesGcm _algorithm = AesGcm.with256bits();
   Future<void> _queue = Future<void>.value();
-  LocalArchiveWriteState writeState = LocalArchiveWriteState.saved;
+  LocalArchiveWriteState writeState = LocalArchiveWriteState.unsaved;
+  bool _hasSavedSnapshot = false;
   String? _latestSnapshot;
   int _pendingWrites = 0;
   bool _disposed = false;
+
+  /// Whether an authenticated archive snapshot exists on this device.
+  bool get hasSavedSnapshot => _hasSavedSnapshot;
 
   static const _fileName = 'hotice-projects-v1.aes';
   static const _keyName = 'hotice-projects-encryption-key-v1';
@@ -118,6 +122,8 @@ class HotIceLocalArchive extends ChangeNotifier {
           if (await _primary.exists()) await _primary.delete();
           await _backup.rename(_primary.path);
         }
+        _hasSavedSnapshot = true;
+        _setWriteState(LocalArchiveWriteState.saved);
         return data;
       } catch (_) {
         // A half-written primary may be recoverable from the prior backup.
@@ -147,6 +153,7 @@ class HotIceLocalArchive extends ChangeNotifier {
     _queue = _queue.then((_) async {
       try {
         await _write(frozen);
+        _hasSavedSnapshot = true;
         _pendingWrites--;
         if (_pendingWrites == 0) {
           _setWriteState(LocalArchiveWriteState.saved);

@@ -21,15 +21,16 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(body: LocalArchiveStatusStrip(archive: archive)),
     ));
-    expect(find.text('Saved on this device'), findsOneWidget);
+    expect(find.text('Changes will save on this device'), findsOneWidget);
 
     archive.writeState = LocalArchiveWriteState.failed;
     archive.notifyListeners();
     await tester.pump();
     expect(
-      find.textContaining('Couldn’t save this device copy'),
+      find.textContaining('Couldn’t save on this device'),
       findsOneWidget,
     );
+    expect(find.textContaining('previous saved version is protected'), findsNothing);
     expect(find.text('Retry'), findsOneWidget);
   });
 }

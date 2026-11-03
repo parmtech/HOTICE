@@ -38,6 +38,41 @@ void main() {
     expect((await archive.restore())?['workspaces'], isNotNull);
   });
 
+  test('archive status never claims a prior save before one exists', () async {
+    final dir = await Directory.systemTemp.createTemp('hotice-first-save-');
+    addTearDown(() async {
+      if (await dir.exists()) await dir.delete(recursive: true);
+    });
+    var failWrites = false;
+    final archive = HotIceLocalArchive(
+      directory: dir,
+      keyLoader: () async {
+        if (failWrites) {
+          throw const HotIceLocalArchiveException('test failure');
+        }
+        return List<int>.filled(32, 21);
+      },
+    );
+    addTearDown(archive.dispose);
+    final store = HotIceStore();
+    addTearDown(store.dispose);
+
+    expect(archive.writeState, LocalArchiveWriteState.unsaved);
+    expect(archive.hasSavedSnapshot, isFalse);
+    store.addProject('First local work');
+    archive.enqueue(store.exportLocalSnapshot());
+    await archive.flush();
+    expect(archive.writeState, LocalArchiveWriteState.saved);
+    expect(archive.hasSavedSnapshot, isTrue);
+
+    failWrites = true;
+    store.addProject('Later local work');
+    archive.enqueue(store.exportLocalSnapshot());
+    await archive.flush();
+    expect(archive.writeState, LocalArchiveWriteState.failed);
+    expect(archive.hasSavedSnapshot, isTrue);
+  });
+
   test('encrypted schema 1 archive remains readable during migration', () async {
     final dir = await Directory.systemTemp.createTemp('hotice-legacy-archive-');
     addTearDown(() async {

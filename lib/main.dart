@@ -489,6 +489,7 @@ class LocalArchiveStatusStrip extends StatelessWidget {
         builder: (context, _) {
           final failed = archive.writeState == LocalArchiveWriteState.failed;
           final saving = archive.writeState == LocalArchiveWriteState.saving;
+          final unsaved = archive.writeState == LocalArchiveWriteState.unsaved;
           final colorScheme = Theme.of(context).colorScheme;
           return Semantics(
             liveRegion: true,
@@ -504,7 +505,9 @@ class LocalArchiveStatusStrip extends StatelessWidget {
                           ? Icons.warning_amber_rounded
                           : saving
                               ? Icons.sync_rounded
-                              : Icons.check_circle_outline_rounded,
+                              : unsaved
+                                  ? Icons.save_outlined
+                                  : Icons.check_circle_outline_rounded,
                       size: 18,
                       color: failed
                           ? colorScheme.onErrorContainer
@@ -514,10 +517,14 @@ class LocalArchiveStatusStrip extends StatelessWidget {
                     Expanded(
                       child: Text(
                         failed
-                            ? 'Couldn’t save this device copy. Your previous saved version is protected.'
+                            ? archive.hasSavedSnapshot
+                                ? 'Couldn’t save the latest changes. Your previous saved version is protected.'
+                                : 'Couldn’t save on this device. Your work may be lost if you close the app.'
                             : saving
                                 ? 'Saving on this device…'
-                                : 'Saved on this device',
+                                : unsaved
+                                    ? 'Changes will save on this device'
+                                    : 'Saved on this device',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: failed
                                   ? colorScheme.onErrorContainer
