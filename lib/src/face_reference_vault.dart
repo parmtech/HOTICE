@@ -7,9 +7,15 @@ import 'package:cryptography/cryptography.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
+enum FaceReferenceVaultFailure { deviceKeyUnavailable, other }
+
 class FaceReferenceVaultException implements Exception {
-  const FaceReferenceVaultException(this.message);
+  const FaceReferenceVaultException(
+    this.message, {
+    this.failure = FaceReferenceVaultFailure.other,
+  });
   final String message;
+  final FaceReferenceVaultFailure failure;
 
   @override
   String toString() => 'Face reference vault unavailable: $message';
@@ -98,6 +104,7 @@ class FaceReferenceVault {
     if (await _containsEncryptedData(directory)) {
       throw const FaceReferenceVaultException(
         'The device key is unavailable for existing encrypted face photos.',
+        failure: FaceReferenceVaultFailure.deviceKeyUnavailable,
       );
     }
     final entropy = Random.secure();

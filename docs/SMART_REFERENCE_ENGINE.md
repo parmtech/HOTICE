@@ -43,7 +43,7 @@ A production implementation must separately verify the server's account authoriz
 ## Next implementation sequence
 
 1. Validate guided capture and portable actor backup on physical Android/iOS devices (native orientation, ML Kit yaw, eye confidence, lighting, autofocus, repeated sessions, picker/save-dialog behavior, interruption, permission rejection, foreground/background, temporary-file deletion); calibrate pose/blur heuristics. Camera2 is preferred on Android for NV21 compatibility.
-2. Validate v2→v3 media migration and workspace key separation on physical Android/iOS devices; add clear key-loss recovery/deletion/retention options.
+2. Validate v2→v3 media migration and workspace key separation on physical Android/iOS devices. The app now explains missing-key recovery during backup/import and links to existing reference deletion controls; complete an all-workspace purge/recovery flow, then confirm deletion and retention behavior on real devices.
 3. Multi-view reconstruction pipeline with transparent confidence and RGB-photo fallback; actual GLB/GLTF export and photorealistic side render derivation.
 4. Signed, least-privilege optional paid-cloud sync through Namecheap cPanel PHP/MySQL backend; secrets always server-side, opt-in for facial data.
 5. Verified/versioned per-provider catalog served by backend with reference type/size/count semantics, server-side attachment packer and safe transforms. No fake 3D handling.

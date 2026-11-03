@@ -267,7 +267,13 @@ void main() {
         readEncodedKey: () async => null,
         writeEncodedKey: (_) async => writes++,
       ),
-      throwsA(isA<FaceReferenceVaultException>()),
+      throwsA(
+        isA<FaceReferenceVaultException>().having(
+          (error) => error.failure,
+          'failure',
+          FaceReferenceVaultFailure.deviceKeyUnavailable,
+        ),
+      ),
     );
     expect(writes, 0);
     expect(await existing.readAsBytes(), [1, 2, 3]);
@@ -284,7 +290,13 @@ void main() {
         readEncodedKey: () async => null,
         writeEncodedKey: (_) async => writes++,
       ),
-      throwsA(isA<FaceReferenceVaultException>()),
+      throwsA(
+        isA<FaceReferenceVaultException>().having(
+          (error) => error.failure,
+          'failure',
+          FaceReferenceVaultFailure.deviceKeyUnavailable,
+        ),
+      ),
     );
     expect(writes, 0);
     expect(await staging.readAsBytes(), [1, 2, 3]);
