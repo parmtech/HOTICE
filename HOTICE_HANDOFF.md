@@ -599,8 +599,11 @@ Repository references: [release issue #33](https://github.com/parmtech/HOTICE/is
   Exact-head source is `eb4a1dff4e7a502eec36b300bf49a0fc89c6d5fe`.
 - Added a MySQL-backed integration case that holds the scanner lock and checks
   the overlapping CLI invocation returns busy. Local `bash -n` and whitespace
-  checks passed. PHP/MySQL are unavailable locally; exact-head backend CI is
-  still required. No real hosting or malware scanner was used.
+  checks passed. Exact-head backend run 41686744680 passed both PHP syntax/core
+  and authenticated MySQL/API integration jobs, including the overlap test.
+  Client run 41686745028 passed static web/catalog and Flutter analysis/tests;
+  APK and emulator jobs remain active. No real hosting or malware scanner was
+  used.
 - PR #79's improved truthful save status is at `8d01b0ca20a99250fb699aa18b70b2e5983fc727`;
   local 75 tests and analysis passed, but exact-head run 41686301713 is queued.
 - Keep PR #80 draft and release NOT READY TO PUBLISH until backend CI and the
