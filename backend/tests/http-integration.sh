@@ -3,9 +3,10 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 source backend/tests/auth-helper.sh
 BASE='http://127.0.0.1:18884'
+scan_lock_pid=''
 php -S 127.0.0.1:18884 -t backend/public backend/public/router.php >/tmp/hotice-php-test.log 2>&1 &
 server_pid=$!
-trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+trap 'if [ -n "$scan_lock_pid" ]; then kill "$scan_lock_pid" 2>/dev/null || true; fi; kill "$server_pid" 2>/dev/null || true' EXIT
 for i in $(seq 1 40); do if curl -fsS "$BASE/health" >/dev/null; then break; fi; sleep 0.25; done
 curl -fsS "$BASE/health" | jq -e '.status == "ok"' >/dev/null
 unknown_reset=$(curl -sS -w '\n%{http_code}' -H 'Content-Type: application/json' \
@@ -87,6 +88,28 @@ scan_status=$?
 set -e
 test "$scan_status" -eq 1
 echo "$scan_result" | jq -e '.scannedClean == 1 and .blocked == 1 and .retryableFailures == 1' >/dev/null
+# Overlapping cPanel cron invocations must not spawn duplicate scanner batches.
+lock_ready='/tmp/hotice-media-scan-lock-ready'
+rm -f "$lock_ready"
+php -r '
+require "backend/src/App.php";
+$db=(new Hotice\App(require "backend/config.php"))->database();
+$database=(string)$db->query("SELECT DATABASE()")->fetchColumn();
+$lock="hotice_media_scan_".substr(hash("sha256",$database),0,32);
+$q=$db->prepare("SELECT GET_LOCK(?,0)"); $q->execute([$lock]);
+if ((int)$q->fetchColumn()!==1) exit(1);
+file_put_contents("/tmp/hotice-media-scan-lock-ready","ready");
+sleep(8);
+$q=$db->prepare("SELECT RELEASE_LOCK(?)"); $q->execute([$lock]);
+' &
+scan_lock_pid=$!
+for i in $(seq 1 40); do if [ -f "$lock_ready" ]; then break; fi; sleep 0.1; done
+test -f "$lock_ready"
+busy_scan=$(php backend/bin/scan-media.php 20)
+echo "$busy_scan" | jq -e '.status == "busy"' >/dev/null
+wait "$scan_lock_pid"
+scan_lock_pid=''
+rm -f "$lock_ready"
 # Scanner errors stay quarantined and must be deferred, so a broken upload
 # cannot consume the same small cron batch indefinitely.
 php -r '
@@ -112,6 +135,38 @@ curl -fsS -H "$AUTH" "$BASE/v1/projects/$id" | jq -e --arg clean "$file" --arg i
   ($files | any(.id == $infected and .scan_status == "blocked")) and
   ($files | any(.id == $retry and .scan_status == "pending"))
 ' >/dev/null
+# Enforce a hard per-invocation budget, even if one scanner process hangs.
+php -r '
+require_once "backend/src/App.php";
+$config=require "backend/config.php";
+$db=(new Hotice\App($config))->database();
+$q=$db->prepare("SELECT storage_name FROM cloud_files WHERE id=?"); $q->execute([$argv[1]]);
+$stored=(string)$q->fetchColumn();
+$path=$config["storage_path"]."/".$stored;
+if (!is_file($path) || file_put_contents($path, file_get_contents("/tmp/hotice-ci-test.png")."HOTICE_TEST_SCANNER_SLOW")===false) exit(1);
+$db->prepare("UPDATE cloud_files SET scan_status=\x27pending\x27,next_scan_at=UTC_TIMESTAMP() WHERE id=?")->execute([$argv[1]]);
+' "$file"
+scan_started=$(date +%s%3N)
+set +e
+limited_scan=$(php backend/bin/scan-media.php 20 2)
+limited_status=$?
+set -e
+scan_elapsed=$(( $(date +%s%3N) - scan_started ))
+test "$limited_status" -eq 1
+test "$scan_elapsed" -lt 5000
+echo "$limited_scan" | jq -e '.retryableFailures == 1 and .batchLimited == true' >/dev/null
+php -r '
+require_once "backend/src/App.php";
+$config=require "backend/config.php"; $db=(new Hotice\App($config))->database();
+$q=$db->prepare("SELECT storage_name,scan_status,TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),next_scan_at) AS due FROM cloud_files WHERE id=?"); $q->execute([$argv[1]]); $row=$q->fetch();
+$path=$config["storage_path"]."/".$row["storage_name"];
+if (!is_file($path) || file_put_contents($path,file_get_contents("/tmp/hotice-ci-test.png"))===false) exit(1);
+clearstatcache(true,$path);
+$db->prepare("UPDATE cloud_files SET sha256=?,byte_size=?,scan_status=\x27pending\x27,next_scan_at=UTC_TIMESTAMP() WHERE id=?")
+  ->execute([hash_file("sha256",$path),filesize($path),$argv[1]]);
+' "$file"
+bounded_retry=$(php backend/bin/scan-media.php 20 10)
+echo "$bounded_retry" | jq -e '.scannedClean == 1 and .batchLimited == false' >/dev/null
 status=$(curl -sS -o /dev/null -w '%{http_code}' -H "$AUTH" "$BASE/v1/files/$infected_file")
 test "$status" = '423'
 status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H "$AUTH" "$BASE/v1/files/$infected_file/access-grants")

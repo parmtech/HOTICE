@@ -67,6 +67,7 @@ jobs:
           file="${!#}"
           if grep -a -q 'HOTICE_TEST_SCANNER_ERROR' "$file"; then exit 2; fi
           if grep -a -q 'HOTICE_TEST_INFECTED' "$file"; then exit 1; fi
+          if grep -a -q 'HOTICE_TEST_SCANNER_SLOW' "$file"; then exec sleep 3; fi
           exit 0
           SCAN
           chmod +x /tmp/hotice-ci-clamdscan
