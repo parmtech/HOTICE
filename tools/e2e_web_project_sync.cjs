@@ -411,7 +411,7 @@ async function main() {
       const autosaveStatus = await page.locator('#projectStatus').textContent();
       throw new Error(error.message + ' · autosave status: ' + autosaveStatus);
     }
-    await page.reload({waitUntil: 'networkidle'});
+    await page.reload({waitUntil: 'load'});
     await page.locator('#localProjects .project-card').getByRole('button', {name: 'Open'}).click();
     try {
       await page.waitForFunction(() => document.querySelector('#projectStatus')?.textContent
