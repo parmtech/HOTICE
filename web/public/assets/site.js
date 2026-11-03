@@ -606,7 +606,8 @@
       (clip.file.size / 1048576).toFixed(1) + ' MiB) to the private HOTICE cloud copy of “' +
       local.title + '”? Cloud storage use depends on your plan. The file will be unavailable until its security scan passes.');
     if (!confirmed) return;
-    if (!cloudActionAllowed(true) || selectedProjectId !== local.id || local.cloudId === '') return;
+    if (accountToken !== sessionToken || !cloudActionAllowed(true) ||
+        selectedProjectId !== local.id || !clips.includes(clip) || local.cloudId === '') return;
     const xhr = new XMLHttpRequest();
     clip.uploadXhr = xhr;
     clip.uploading = true;
@@ -616,7 +617,7 @@
       '/files/' + encodeURIComponent(fileId), true);
     xhr.withCredentials = false;
     xhr.setRequestHeader('Accept', 'application/json');
-    xhr.setRequestHeader('Authorization', 'Bearer ' + accountToken);
+    xhr.setRequestHeader('Authorization', 'Bearer ' + sessionToken);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable) return;
@@ -628,12 +629,14 @@
       clip.uploadXhr = null;
       let result = null;
       try { result = JSON.parse(xhr.responseText); } catch (_) { /* reconcile below */ }
-      if (xhr.status === 201 && result?.id === fileId && result.scanStatus === 'pending') {
+      if (accountToken !== sessionToken) {
+        clip.uploadMessage = 'The upload may have reached the previous account. Sign in to that account and check its cloud files before retrying; the local clip is unchanged.';
+      } else if (xhr.status === 201 && result?.id === fileId && result.scanStatus === 'pending') {
         clip.cloudFileId = fileId;
         clip.uploadMessage = 'Uploaded privately. Security scan pending; this media cannot be used yet.';
-        await refreshCloudStorageFromProfile();
+        await refreshCloudStorageFromProfile(sessionToken);
       } else if (xhr.status === 0 || xhr.status >= 500 || xhr.status === 201) {
-        await reconcileMediaUpload(clip, local, fileId);
+        await reconcileMediaUpload(clip, local, fileId, sessionToken);
       } else if (xhr.status === 413) {
         const quotaRefreshed = accountToken === sessionToken &&
           await refreshCloudStorageFromProfile(sessionToken);
@@ -656,7 +659,7 @@
     xhr.onerror = () => {
       clip.uploading = false;
       clip.uploadXhr = null;
-      reconcileMediaUpload(clip, local, fileId);
+      reconcileMediaUpload(clip, local, fileId, sessionToken);
     };
     xhr.onabort = () => {
       clip.uploading = false;
@@ -667,17 +670,29 @@
     xhr.send(clip.file);
   }
 
-  async function reconcileMediaUpload(clip, local, fileId) {
+  async function reconcileMediaUpload(clip, local, fileId, sessionToken) {
     // The server project file list resolves a lost response before exposing a manual retry.
+    if (accountToken !== sessionToken) {
+      clip.uploadMessage = 'Upload outcome is unknown for the previous account. Sign in to that account and check its cloud files before retrying.';
+      renderClips();
+      return;
+    }
     try {
-      const remote = await accountApi('/v1/projects/' + encodeURIComponent(local.cloudId), {token: accountToken});
+      const remote = await accountApi('/v1/projects/' + encodeURIComponent(local.cloudId), {token: sessionToken});
+      if (accountToken !== sessionToken) {
+        clip.uploadMessage = 'Upload outcome is unknown for the previous account. Sign in to that account and check its cloud files before retrying.';
+        renderClips();
+        return;
+      }
       const file = Array.isArray(remote.files) && remote.files.find((item) => item.id === fileId);
       if (file) {
         clip.cloudFileId = fileId;
         clip.uploadMessage = 'Upload confirmed from cloud project. Security scan status: ' + String(file.scan_status || 'pending') + '.';
       } else clip.uploadMessage = 'Upload was not confirmed. Your local clip is unchanged; you may retry manually.';
     } catch (_) {
-      clip.uploadMessage = 'Upload outcome is unknown. Check cloud project files before retrying; your local clip is unchanged.';
+      clip.uploadMessage = accountToken === sessionToken
+        ? 'Upload outcome is unknown. Check cloud project files before retrying; your local clip is unchanged.'
+        : 'Upload outcome is unknown for the previous account. Sign in to that account and check its cloud files before retrying.';
     }
     renderClips();
   }
