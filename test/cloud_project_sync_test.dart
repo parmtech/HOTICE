@@ -39,6 +39,7 @@ void main() {
         createdAt: DateTime.utc(2026),
         avatarName: 'Nova',
         requestedAttachments: const [VideoAttachment.image],
+        selectedReferenceIds: const ['11111111-1111-4111-8111-111111111111'],
         referenceFiles: const [
           SceneReference(
             type: VideoAttachment.image,
@@ -56,6 +57,7 @@ void main() {
     expect(draft['prompt'], 'A moonlit city');
     expect(draft['requestedAttachments'], ['image']);
     expect(draft['referenceFiles'], isEmpty);
+    expect(draft['selectedReferenceIds'], isEmpty);
     expect(cloud['avatars'], [
       {'name': 'Nova', 'style': 'Cinematic'},
     ]);
