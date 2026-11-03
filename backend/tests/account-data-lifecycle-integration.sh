@@ -129,7 +129,7 @@ test -n "$fault_storage_name"
 # It raises only during the queue entry cleanup AFTER the user was deleted.
 php -r '
 require_once "backend/src/App.php"; $db=(new Hotice\App(require "backend/config.php"))->database();
-$db->exec("CREATE TRIGGER hotice_test_queue_cleanup_fault BEFORE DELETE ON private_media_deletion_queue FOR EACH ROW SIGNAL SQLSTATE \'45000\' SET MESSAGE_TEXT = \'synthetic post-commit cleanup fault\'");
+$db->exec("CREATE TRIGGER hotice_test_queue_cleanup_fault BEFORE DELETE ON private_media_deletion_queue FOR EACH ROW SIGNAL SQLSTATE " . chr(39) . "45000" . chr(39) . " SET MESSAGE_TEXT = " . chr(39) . "synthetic post-commit cleanup fault" . chr(39));
 '
 fault_delete=$(curl -fsS -X DELETE -H "$FAULT_AUTH" -H 'Content-Type: application/json' \
   -d "{\"confirmation\":\"DELETE\",\"password\":\"$FAULT_PASS\"}" "$BASE/v1/me")
