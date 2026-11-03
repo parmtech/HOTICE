@@ -1,0 +1,205 @@
+#!/usr/bin/env node
+
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const SECRET_PATHS = [
+  '/config.php',
+  '/schema.sql',
+  '/src/App.php',
+  '/bin/install.php',
+  '/private-media/',
+  '/backend/config.php',
+  '/backend/schema.sql',
+  '/backend/src/App.php',
+  '/backend/bin/install.php',
+  '/backend/private-media/',
+  '/%2e%2e%2fconfig.php',
+  '/%2e%2e%2fbackend%2fconfig.php',
+  '/%252e%252e%252fconfig.php',
+  '/%2e%2e%5cconfig.php',
+  '/..%2fbackend%2fconfig.php',
+  '/backend%2fconfig.php',
+  '/backend%252fconfig.php',
+  '/.env',
+  '/.git/config',
+  '/.htaccess',
+  '/.user.ini',
+  '/backend/.env',
+  '/backend/.git/config',
+  '/backend/.htaccess',
+  '/backend/.user.ini',
+  '/private-media/.htaccess',
+  '/private-media/index.php',
+];
+const MAX_HEALTH_BODY_BYTES = 8192;
+
+function deploymentOrigin(input) {
+  let url;
+  try {
+    url = new URL(input);
+  } catch {
+    throw new Error('Provide the HTTPS API origin, for example https://api.example.com.');
+  }
+  if (url.protocol !== 'https:' || !url.hostname || url.username || url.password ||
+      (url.pathname !== '/' && url.pathname !== '') || url.search || url.hash) {
+    throw new Error('The deployment URL must be a plain HTTPS origin without credentials, path, query, or fragment.');
+  }
+  return url.origin;
+}
+
+async function readHealthJson(response) {
+  if (!response.body) throw new Error('Health response body is empty.');
+  const reader = response.body.getReader();
+  const chunks = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > MAX_HEALTH_BODY_BYTES) {
+        await reader.cancel();
+        throw new RangeError('Health response body exceeds its size limit.');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+}
+
+async function verifyDeployment(input, fetchImpl = fetch, { timeoutMs = 8000 } = {}) {
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
+    throw new Error('The per-request timeout must be between 1 and 30000 milliseconds.');
+  }
+  const origin = deploymentOrigin(input);
+  const failures = [];
+  const request = async (path, headers = {}) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetchImpl(`${origin}${path}`, {
+        method: 'GET',
+        redirect: 'manual',
+        cache: 'no-store',
+        signal: controller.signal,
+        headers: { Accept: 'application/json', ...headers },
+      });
+      let released = false;
+      return {
+        response,
+        release: async () => {
+          if (released) return;
+          released = true;
+          clearTimeout(timeout);
+          controller.abort();
+          try {
+            const cancellation = response.body?.cancel();
+            if (cancellation && typeof cancellation.catch === 'function') void cancellation.catch(() => {});
+          } catch { /* body may already be consumed */ }
+        },
+      };
+    } catch {
+      clearTimeout(timeout);
+      failures.push(`${path}: request failed`);
+      return null;
+    }
+  };
+
+  const healthProbe = await request('/health');
+  if (healthProbe) {
+    const health = healthProbe.response;
+    if (health.status !== 200) failures.push(`/health: expected HTTP 200, received ${health.status}`);
+    const contentType = health.headers.get('content-type') || '';
+    if (!contentType.toLowerCase().includes('application/json')) failures.push('/health: response is not JSON');
+    const requiredHeaders = [
+      ['x-content-type-options', 'nosniff'],
+      ['referrer-policy', 'no-referrer'],
+      ['x-frame-options', 'DENY'],
+    ];
+    for (const [name, expected] of requiredHeaders) {
+      if ((health.headers.get(name) || '').toLowerCase() !== expected.toLowerCase()) {
+        failures.push(`/health: missing or invalid ${name} security header`);
+      }
+    }
+    if (!/\bno-store\b/i.test(health.headers.get('cache-control') || '')) {
+      failures.push('/health: cache-control must include no-store');
+    }
+    const csp = health.headers.get('content-security-policy') || '';
+    if (!/\bdefault-src\s+'none'(?=;|$)/i.test(csp) || !/\bframe-ancestors\s+'none'(?=;|$)/i.test(csp)) {
+      failures.push('/health: CSP must deny all default sources and framing');
+    }
+    const hsts = health.headers.get('strict-transport-security') || '';
+    const maxAge = Number(hsts.match(/(?:^|;)\s*max-age=(\d+)/i)?.[1] || 0);
+    if (maxAge < 31536000) failures.push('/health: HSTS max-age must be at least one year');
+    if (!/^[a-f0-9]{16}$/i.test(health.headers.get('x-request-id') || '')) {
+      failures.push('/health: request ID header is missing or malformed');
+    }
+    try {
+      const body = await readHealthJson(health);
+      if (body?.service !== 'HOTICE API' || body?.status !== 'ok') {
+        failures.push('/health: response does not identify a healthy HOTICE API');
+      }
+    } catch (error) {
+      if (error instanceof RangeError) {
+        failures.push('/health: response body exceeds the 8192-byte limit');
+      } else if (error?.name === 'AbortError' || error?.name === 'TimeoutError') {
+        failures.push('/health: response body request timed out');
+      } else {
+        failures.push('/health: response body is not valid JSON');
+      }
+    } finally {
+      await healthProbe.release();
+    }
+  }
+
+  const foreignOriginProbe = await request('/health', { Origin: 'https://hotice-probe.invalid' });
+  if (foreignOriginProbe && foreignOriginProbe.response.status !== 403) {
+    failures.push(`/health: unlisted browser origin must receive HTTP 403, received ${foreignOriginProbe.response.status}`);
+  }
+  if (foreignOriginProbe && foreignOriginProbe.response.headers.get('access-control-allow-origin')) {
+    failures.push('/health: unlisted browser origin received an Access-Control-Allow-Origin header');
+  }
+  await foreignOriginProbe?.release();
+
+  for (const path of SECRET_PATHS) {
+    const probe = await request(path);
+    if (probe && ![401, 403, 404, 410].includes(probe.response.status)) {
+      failures.push(`${path}: expected a blocked response (401/403/404/410), received ${probe.response.status}`);
+    }
+    await probe?.release();
+  }
+
+  return { ok: failures.length === 0, checkedPaths: SECRET_PATHS.length, failures };
+}
+
+export { deploymentOrigin, verifyDeployment };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const input = process.argv[2];
+  if (!input || process.argv.length !== 3) {
+    console.error('Usage: node tools/verify_cpanel_deployment.mjs https://api.example.com');
+    process.exitCode = 2;
+  } else {
+    try {
+      const result = await verifyDeployment(input);
+      if (result.ok) {
+        console.log(`PASS: HTTPS health, foreign-origin denial and ${result.checkedPaths} protected-path checks passed.`);
+      } else {
+        for (const failure of result.failures) console.error(`FAIL: ${failure}`);
+        process.exitCode = 1;
+      }
+    } catch (error) {
+      console.error(`FAIL: ${error.message}`);
+      process.exitCode = 2;
+    }
+  }
+}
