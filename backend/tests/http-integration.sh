@@ -148,7 +148,7 @@ $db->prepare("UPDATE cloud_files SET scan_status=\x27pending\x27,next_scan_at=UT
 ' "$file"
 scan_started=$(date +%s%3N)
 set +e
-limited_scan=$(php backend/bin/scan-media.php 20 1)
+limited_scan=$(php backend/bin/scan-media.php 20 2)
 limited_status=$?
 set -e
 scan_elapsed=$(( $(date +%s%3N) - scan_started ))
