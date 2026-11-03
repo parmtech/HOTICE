@@ -575,36 +575,39 @@ Repository references: [release issue #33](https://github.com/parmtech/HOTICE/is
   truth issue: the status begins unsaved, only successful write/restore marks
   it saved, and first-save failure warns accurately. Full local suite now
   passes 75 tests; analyzer has zero errors (45 informational lints); diff
-  check passed. Exact-head run 41686301713 is queued. On prior head
-  `eeec47f21d9b0af9916ad8fa85e9623312fe56ed`, inventory, static browser dry
-  run, Flutter analysis/tests passed; APK and emulator were active.
-- PR #70 handoff branch head `1edd1a000873ae94e5d8da87457e91b548582695`
-  has exact-head run 41685739669 in progress; Flutter setup is active.
+  check passed. Exact-head run 41686301713 passed inventory, static browser dry run, Flutter analysis/tests, Android APK and emulator smoke.
+- PR #70 is the documentation handoff branch; refresh its source head and CI after this continuation commit is pushed.
 - PR #32 (`feat/smart-avatar-reference-engine`) remains open and draft at
   `3eac894445bac527dd53f8c0ebd7f77b75b55bf0`; its exact-head Flutter run
   40735266061 and PHP/backend run 40735266040 both passed. This is evidence for
   the implemented research catalog and guided 2D reference path only. Physical
   device QA, live provider lifecycle, secure media upload, billing and true 3D
   reconstruction are still not established by those checks.
-- Issue #33 has a progress comment for #78 and the earlier #79 head. Refresh
-  it with commit `8d01b0c` CI once available, then continue the next blueprint
-  gap. Keep release
-  NOT READY TO PUBLISH until all release gates pass.
+- Issue #33 has earlier progress comments for #78 and #79. Refresh it alongside this handoff update. Keep release NOT READY TO PUBLISH until all release gates pass.
 
-## Latest continuation: media scanner overlap protection
+## Latest continuation: media scanner overlap and bounded runtime
 
-- PR #80 (`feat/media-upload-recovery-hardening`) is a draft child of #71. It
-  adds a database-scoped MySQL advisory lock so concurrent cPanel cron runs do
-  not duplicate ClamAV scan batches; a concurrent run returns `status=busy`.
-  Exact-head source is `eb4a1dff4e7a502eec36b300bf49a0fc89c6d5fe`.
-- Added a MySQL-backed integration case that holds the scanner lock and checks
-  the overlapping CLI invocation returns busy. Local `bash -n` and whitespace
-  checks passed. Exact-head backend run 41686744680 passed both PHP syntax/core
-  and authenticated MySQL/API integration jobs, including the overlap test.
-  Client run 41686745028 passed static web/catalog and Flutter analysis/tests;
-  APK and emulator jobs remain active. No real hosting or malware scanner was
-  used.
-- PR #79's improved truthful save status is at `8d01b0ca20a99250fb699aa18b70b2e5983fc727`;
-  local 75 tests and analysis passed, but exact-head run 41686301713 is queued.
-- Keep PR #80 draft and release NOT READY TO PUBLISH until backend CI and the
-  wider release gates pass.
+- PR #80 (`feat/media-upload-recovery-hardening`) is a draft child of #71. Its
+  current source head is `4eb3c3df7a47b4631df055ccf20db3fa342f1941`. It adds a
+  database-scoped MySQL advisory lock (`status=busy` for overlap) and a bounded
+  batch budget (`media_scan_batch_seconds`, default 180, clamped 1–300 seconds;
+  each scanner process is limited to min(remaining budget, 120 seconds)).
+  Timed-out media stays quarantined and is deferred; unstarted rows remain
+  pending/due. A two-second MySQL integration case covers slow-scanner timeout
+  and recovery. `bash -n backend/tests/http-integration.sh` and whitespace
+  checks passed locally; PHP/MySQL runtimes were unavailable locally.
+- Exact-head backend run [41688257328](https://github.com/parmtech/HOTICE/actions/runs/41688257328)
+  passed PHP syntax/core and authenticated MySQL/API browser integration,
+  including advisory-lock contention, timeout/recovery, mock generation,
+  retries/refunds, media and account lifecycle checks. This followed two
+  superseded failures: an initial one-second timeout fixture consumed its
+  budget during setup, then a later fixture rewrite exposed stale PHP stat
+  cache. The current head raises the fixture budget and clears that cache.
+  Exact-head client run [41688257497](https://github.com/parmtech/HOTICE/actions/runs/41688257497)
+  passed Flutter analysis/tests and static browser/catalog workflow. Android
+  APK compilation and emulator journey were still in progress at the latest
+  poll. Refresh both before recording complete client success.
+- The backend CI uses MySQL and browser automation with synthetic settings;
+  it is not evidence of a live cPanel/ClamAV installation. No paid provider
+  or payment calls were made. Keep PR #80 draft and release NOT READY TO
+  PUBLISH until the remaining client and release gates pass.
