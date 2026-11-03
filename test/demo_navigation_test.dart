@@ -234,4 +234,34 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('desktop sidebar remains usable in a short split window',
+      (tester) async {
+    tester.view.physicalSize = const Size(900, 390);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(const HotIceApp());
+    final entry = find.text('Explore demo studio');
+    await tester.ensureVisible(entry);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull,
+        reason: 'Short desktop view should not overflow the sidebar.');
+    expect(find.text('Projects'), findsWidgets);
+
+    // The last navigation item must remain reachable by scrolling the
+    // sidebar, instead of overflowing below the bottom edge.
+    final accountNav = find.text('Accounts').first;
+    await tester.ensureVisible(accountNav);
+    await tester.pumpAndSettle();
+    await tester.tap(accountNav);
+    await tester.pumpAndSettle();
+    expect(find.text('Your demo profiles'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+
 }
