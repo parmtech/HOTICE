@@ -485,10 +485,34 @@ Before stopping, state the exact next action. If blocked, state the missing inpu
   clean grant/content transfer, consent revocation, cloud deletion and local
   original retention (`realProviderCalls=0`). Exact-head client run
   [41695089458](https://github.com/parmtech/HOTICE/actions/runs/41695089458)
-  was queued at handoff.
+  passed static web/catalog, Flutter analysis/unit tests, Android APK and emulator smoke.
 - PR #83 depends on PR #82 → #71. Real cPanel/ClamAV acceptance, output/job
   attachment routing, paid providers and release-candidate integration remain
   unverified. Release remains NOT READY TO PUBLISH.
+
+## Latest continuation: cloud storage quota and usage meter
+
+- Draft PR #84 (`feat/web-cloud-storage-usage`) is stacked on PR #83, which is
+  stacked on #82 → #71. Source head is
+  `dd7877d53f0a4f3efbf93fb1e0de8ae7c5242f83`. The browser project library
+  displays server-reported used space, plan quota, available capacity and a
+  progress bar after verified sign-in for accounts with readable cloud access.
+  It refreshes after successful media upload/deletion and clears cached values
+  on session end. This is account quota metadata and remains visible when
+  project-sync consent is revoked.
+- Local JavaScript syntax, static-site verification, whitespace checks and
+  Chromium E2E passed. The E2E verifies hidden pre-login state, initial quota,
+  the exact 21-byte synthetic upload increase, quota during consent revocation,
+  and reclaimed quota after deletion. Profile reads pass through the bearer-
+  authenticated fixture guard; all 11 browser scenarios passed with
+  `realProviderCalls=0`.
+- Exact-head Actions run
+  [41698095222](https://github.com/parmtech/HOTICE/actions/runs/41698095222)
+  is queued. Earlier PR #83 client run 41695089458 and docs run 41695191518
+  passed all applicable jobs.
+- PR #84 remains draft. Live cPanel/ClamAV, deployment/restore, real provider
+  and billing, iOS/device acceptance, legal/privacy/accessibility and release
+  candidate gates remain open. Release is NOT READY TO PUBLISH.
 
 
 ## Appendix 1. Open PR inventory observed on 4 November 2026
