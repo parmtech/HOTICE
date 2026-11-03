@@ -8,7 +8,8 @@
 
 - `lib/src/live_face_capture.dart`: on-device Camera2/NV21 on Android or BGRA on iOS, ML Kit face detection, yaw/pitch/roll guidance, face count/framing, front-view eye-open checks, sampled exposure/detail heuristics and three good frames required before automatic still capture.
 - After each shutter, reruns ML Kit on the actual captured still and rejects missing/multiple faces or front-view closed eyes.
-- Capture requires explicit consent; five photos (front, two 45-degree, two profiles) are saved only to a temporary app cache, then added to the chosen Actor identity reference pack on confirmation. Cancelling and removal clean up app-owned temporary images where possible.
+- Capture requires explicit consent; five photos (front, two 45-degree, two profiles) are saved only to a temporary app cache, then added to the chosen Actor identity reference pack on confirmation. Cancelling, removal, and the next Avatar Studio entry after a crash clean up app-owned temporary images where possible.
+- Avatar Studio performs a best-effort cache sweep on entry: abandoned HOTICE scanner batches are removed after an app restart, while paths still referenced by current in-memory avatars are preserved. The sweep matches only generated scanner directory/photo names and leaves unknown files, links and nested content untouched.
 - Camera lifecycle pause/resume handling, streaming throttling, capture reentrancy guard, retries and user-controlled yaw mirror reversal. No selfie audio.
 - Prominent Live face capture tab in Avatar Studio, with a character selector, separate from the original nonfunctional 3D scan guide.
 - `tools/configure_face_capture.py`: idempotent Android permission and iOS 15.5 camera/privacy configuration after ephemeral Flutter scaffold generation.

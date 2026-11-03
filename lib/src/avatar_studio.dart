@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'smart_references.dart';
 import 'live_face_capture.dart';
 import 'face_capture_quality.dart';
+import 'face_capture_storage.dart';
 import 'dart:io';
 import 'avatar_identity.dart';
 import 'design.dart';
@@ -28,6 +31,28 @@ class _AvatarsPageState extends State<AvatarsPage> {
   bool showLiveCapture = false;
   String? captureTarget;
   int poseIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_cleanAbandonedFaceCaptures());
+  }
+
+  Future<void> _cleanAbandonedFaceCaptures() async {
+    try {
+      final temporaryRoot = await getTemporaryDirectory();
+      final retainedPaths = widget.store.avatars
+          .expand((avatar) => widget.store.avatarPackFor(avatar.name).assets)
+          .where((asset) => asset.ownedTemporaryFile)
+          .map((asset) => asset.localPath);
+      await deleteOrphanedFaceCaptureBatches(
+        temporaryRoot: temporaryRoot,
+        retainedPhotoPaths: retainedPaths,
+      );
+    } catch (_) {
+      // Cleanup is best-effort; never block the user's Avatar Studio workflow.
+    }
+  }
 
   static const poses = <({String title, String hint, IconData icon})>[
     (title: 'Front portrait', hint: 'Even lighting, neutral expression and no face filters.', icon: Icons.face_outlined),
