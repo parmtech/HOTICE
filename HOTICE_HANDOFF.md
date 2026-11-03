@@ -410,6 +410,7 @@ Append one ledger row per meaningful unit; do not erase history:
 | Date | Packet/requirement | Branch + source SHA | Delivered behavior | Validation evidence | Remaining / next action |
 | --- | --- | --- | --- | --- | --- |
 | 2026-11-03 | Documentation request | docs/ready-to-publish-release-gates; see document commit | Canonical A–Z blueprint, resume contract and current PR/CI inventory | GitHub readback and documentation-only changed-path review | WP01 inventory/integration; all release gates still require candidate evidence |
+| 2026-11-03 | WP03 prompt authoring; WP09 prompt UX foundation only | feat/studio-responsive-ux-v2, c9c0f40f368fa7adf6854b32e307a07d429238bd (PR #61, stacked on PR #59) | Added three original editable scene prompt starters; selecting one fills the editor and does not save or submit a job | Local full Flutter suite: 62 tests passed, including 320px / 1.5× text-scale coverage; exact-head Actions run 41563665986 in progress at update; analyzer reported 28 info-level lints and no errors | Playable/licensed video examples, provider rendering and WP01 integrated stack inventory remain open; next recheck exact CI, then continue WP01 before integration; release gates remain OPEN |
 
 Decision log template: decision ID; date; problem; considered options; chosen option; reason/evidence; compatibility/data migration; rollback; owner approval where required. Record architecture changes, canonical vault choice, provider enablement and revised performance budgets here or in linked ADRs.
 
