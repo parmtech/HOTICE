@@ -1,9 +1,10 @@
 # HOTICE — CURRENT HANDOFF (4 NOVEMBER 2026)
 
 **Canonical repo:** https://github.com/parmtech/HOTICE
-**Integration branch:** feat/avatar-reference-persistence (local, based on PR #79 `feat/native-archive-save-health` + PR #32 `feat/smart-avatar-reference-engine`)
-**Source PRs:** #32 (draft) and #79 (open; preserved unchanged; neither merged into main)
+**Integration branch:** feat/avatar-reference-persistence (pushed; draft [PR #86](https://github.com/parmtech/HOTICE/pull/86), stacked on PR #79)
+**Source PRs:** #32 and #79 remain open and unchanged; neither is merged into main.
 **Scope:** Integrate the consented 2D capture vault and smart reference planner with PR #79’s encrypted local project archive.
+**Master product contract:** [HOTICE_HANDOFF.md](https://github.com/parmtech/HOTICE/blob/docs/ready-to-publish-release-gates/HOTICE_HANDOFF.md), currently proposed in open PR #34. Its section W sets the dependency-safe packets; its section X defines release gates.
 
 Read the NEW authoritative contracts before proceeding:
 - [AI Model Compatibility](API_MODEL_COMPATIBILITY.md): official provider docs, retired models, strict role/duration/ratio rules, security, and implementation gaps.
@@ -12,24 +13,26 @@ Read the NEW authoritative contracts before proceeding:
 
 ## Current continuation checkpoint
 
-This integration branch is local and uncommitted. It combines PR #79 head `8d01b0c` with PR #32 head `f3571e3`; original feature and PR branches remain untouched. The latest PR #32 head and its Actions must be refreshed before claiming current remote status.
+The integration branch is clean at `9dee7773e24f1e9407ad62a18403979a377dcf72` and combines PR #79 head `8d01b0c` with PR #32 head `f3571e3`. Draft PR #86 targets `feat/native-archive-save-health`; the original PR #32 and #79 branches remain untouched. PR #32 remains open at `f3571e3`; PR #79 remains open at `8d01b0c`.
 
 - The Android/iOS face-reference vault stores accepted JPG/PNG/WebP images as AES-256-GCM ciphertext in private app storage. OS secure storage holds the device key; authentication binds each blob to vault format v2 and its reference UUID. If data exists but the key is unavailable, reads fail closed and cleanup preserves the ciphertext.
 - Camera capture is encrypted immediately and the raw capture is removed after use. Manual imports preserve the user's source and remove only recognized picker-cache copies. Cache cleanup is best effort.
 - Avatar and scene reference metadata, ownership, and selected reference IDs now round-trip in the encrypted device-local project archive. Restore rejects malformed UUIDs, owner mismatches, unsupported MIME/format values, duplicate IDs, and paths not ending in the matching `<uuid>.aes` vault filename. Avatar/project deletion removes associated ciphertext through vault path validation.
 - **Important limitation:** face-photo encryption uses the OS-held device key. This provides logical account/workspace isolation inside the encrypted archive, not cryptographic per-account key separation. There is no cross-device backup, recovery/export key, cloud sync, or cross-device usability. Losing the device key makes its media unreadable. Physical-device scanner and delete lifecycle QA remains outstanding.
-- Local integration verification (4 Nov 2026): `flutter pub get` passed; `flutter analyze --no-pub --no-fatal-infos` passed with 106 informational lints and no errors; all 124 Flutter tests passed; `git diff --cached --check` passed after the docs edits. PHP tests could not run locally because PHP is unavailable. Android APK/emulator and exact-head remote CI for this integration await the pushed branch; the CI workflow generates native scaffolds and includes those checks.
+- Local integration verification (4 Nov 2026): `flutter pub get` passed; `flutter analyze --no-pub --no-fatal-infos` passed with 106 informational lints and no errors; all 124 Flutter tests passed; staged diff whitespace checks passed. PHP tests could not run locally because PHP is unavailable.
+- Exact-head CI for initial integration commit `4a66f939`: [backend run 41712127198](https://github.com/parmtech/HOTICE/actions/runs/41712127198) passed. [Flutter/web/Android run 41712127380](https://github.com/parmtech/HOTICE/actions/runs/41712127380) passed analysis/tests, web checks, SBOM and APK build, but emulator smoke failed because the test expected `Avatar Studio` after returning to the Actors page. The page title is `Actors Studio`; the assertion was corrected in `9dee7773`.
+- Corrected-head CI on `9dee7773`: [backend run 41713719828](https://github.com/parmtech/HOTICE/actions/runs/41713719828) passed. [Flutter/web/Android run 41713719942](https://github.com/parmtech/HOTICE/actions/runs/41713719942) passed inventory, web, Flutter analysis/tests and APK build. At this handoff edit, its real Android emulator smoke job is still in progress; check the terminal conclusion and diagnose/fix any failure before claiming the integration CI is fully green.
 - Local verification at feature-code head `600cd14`: 87 Flutter unit/widget tests pass; `flutter analyze --no-fatal-infos` exits successfully with informational lints only; `git diff --check` passes. Exact-head [Flutter/Android run 41704681779](https://github.com/parmtech/HOTICE/actions/runs/41704681779) and [PHP/backend run 41704681962](https://github.com/parmtech/HOTICE/actions/runs/41704681962) both passed all jobs, including APK and emulator smoke on the Flutter workflow.
 - Current PR head `cb5185d` also has passing Flutter analysis/tests and PHP/backend checks in [Flutter/Android run 41705798056](https://github.com/parmtech/HOTICE/actions/runs/41705798056) and [PHP/backend run 41705797971](https://github.com/parmtech/HOTICE/actions/runs/41705797971). Its APK compilation and emulator smoke were still running at the last check; recheck before making a full current-head CI claim.
 - The earlier commit `2604b7d` initially failed CI due an unused-variable warning; this was removed in `29fd098`. Latest code includes the subsequent v2 authenticated-metadata change.
 
 ### Next implementation sequence
 
-1. Review the merge diff and validate the stack’s model, archive, Android APK/emulator, backend PHP and CI workflows. Push the integration branch and open a draft stacked PR only after a clean review.
-2. Recheck PR #32 and PR #79 exact-head Actions; preserve both source PRs until the stacked integration is reviewed and merged through normal gates.
-3. Add archive migration/recovery/export and real device vault QA before promising recoverable long-lived media. Confirm orphan cleanup respects records loaded from the archive.
-4. Keep every provider capability disabled unless backend entitlement, role/format, price and lifecycle checks are verified. No real provider or payment call has been made.
-5. Track release gates in [issue #33](https://github.com/parmtech/HOTICE/issues/33). Current decision: **NOT READY TO PUBLISH**; cPanel staging, live providers/billing, account/admin security, media/job production paths, iOS/device QA, accessibility/legal/licensing and rollback/restore evidence remain open.
+1. Finish and inspect run 41713719942's Android emulator smoke job. Treat APK success as build evidence only; emulator navigation does not prove physical camera behavior.
+2. Review draft PR #86 and preserve source PR #32 and #79 until the stack is reviewed through normal gates. Do not merge PRs; current user objective and master handoff do not authorize merges.
+3. Continue dependency-safe integration from the authoritative master handoff PR #34, especially shared contracts/local recovery and full shared-backend user journeys. Reinspect every branch head and worktree before reuse; many independent stacks are still open.
+4. Add explicit media key-loss recovery/export and physical-device vault QA before claiming recoverable long-lived actor media. Keep provider capabilities disabled unless server entitlement, role/format, pricing and job lifecycle checks are verified. No real provider or payment call has been made.
+5. Track gates in [issue #33](https://github.com/parmtech/HOTICE/issues/33). Release decision remains **NOT READY TO PUBLISH**; cPanel staging, live providers/billing, account/admin security, media/job production paths, iOS/device QA, accessibility/legal/licensing and rollback/restore evidence remain open.
 
 ## Existing capability boundary
 

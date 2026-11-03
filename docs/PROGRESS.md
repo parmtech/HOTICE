@@ -2,6 +2,17 @@
 
 > **Continuing HOTICE on another model?** First read [CONTINUE_HERE.md](CONTINUE_HERE.md) for the verified repo state, product decisions, blockers, and ordered next steps. Refresh the current branch and Actions status; this checklist may lag behind newer commits.
 
+## Integration checkpoint — 4 November 2026 (PR #86)
+
+- [x] PR #86 integrates PR #32's guided 2D reference engine with PR #79's encrypted device-local archive; both source PRs remain open and unchanged.
+- [x] Avatar/scene reference ownership and selected IDs persist in the encrypted archive; restore validates UUIDs, owners, formats, duplicate IDs and vault path suffixes. Photo cleanup is validated through the vault.
+- [x] Local `flutter test --no-pub` passes all 124 tests; `flutter analyze --no-pub --no-fatal-infos` passes with informational lints only.
+- [x] Exact-head backend, static web, Flutter analysis/tests, release inventory/SBOM and Android APK build passed for PR #86 head `9dee7773`; see [backend run 41713719828](https://github.com/parmtech/HOTICE/actions/runs/41713719828) and [client run 41713719942](https://github.com/parmtech/HOTICE/actions/runs/41713719942).
+- [ ] Android emulator smoke is still running in run 41713719942; verify terminal result. A previous run exposed and corrected a stale `Avatar Studio` assertion in the test.
+- [ ] Physical Android/iOS capture QA, user-controlled encrypted-media recovery, per-account cryptographic key separation and 3D reconstruction remain unverified/out of scope for this integration.
+
+See [CONTINUE_HERE.md](CONTINUE_HERE.md) for the exact branch, commit, run status and next actions. Release remains **NOT READY TO PUBLISH**.
+
 ## Guided live face capture — 28 October 2026 (feature branch)
 
 - [x] On-device Camera2/NV21 + ML Kit face detection and 5-step auto-capture implementation with explicit consent, front-view open-eye checks, framing/head-pose/lighting heuristics, still revalidation and retake controls.
