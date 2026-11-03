@@ -3,9 +3,10 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 source backend/tests/auth-helper.sh
 BASE='http://127.0.0.1:18884'
+scan_lock_pid=''
 php -S 127.0.0.1:18884 -t backend/public backend/public/router.php >/tmp/hotice-php-test.log 2>&1 &
 server_pid=$!
-trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+trap 'if [ -n "$scan_lock_pid" ]; then kill "$scan_lock_pid" 2>/dev/null || true; fi; kill "$server_pid" 2>/dev/null || true' EXIT
 for i in $(seq 1 40); do if curl -fsS "$BASE/health" >/dev/null; then break; fi; sleep 0.25; done
 curl -fsS "$BASE/health" | jq -e '.status == "ok"' >/dev/null
 unknown_reset=$(curl -sS -w '\n%{http_code}' -H 'Content-Type: application/json' \
@@ -87,6 +88,28 @@ scan_status=$?
 set -e
 test "$scan_status" -eq 1
 echo "$scan_result" | jq -e '.scannedClean == 1 and .blocked == 1 and .retryableFailures == 1' >/dev/null
+# Overlapping cPanel cron invocations must not spawn duplicate scanner batches.
+lock_ready='/tmp/hotice-media-scan-lock-ready'
+rm -f "$lock_ready"
+php -r '
+require "backend/src/App.php";
+$db=(new Hotice\App(require "backend/config.php"))->database();
+$database=(string)$db->query("SELECT DATABASE()")->fetchColumn();
+$lock="hotice_media_scan_".substr(hash("sha256",$database),0,32);
+$q=$db->prepare("SELECT GET_LOCK(?,0)"); $q->execute([$lock]);
+if ((int)$q->fetchColumn()!==1) exit(1);
+file_put_contents("/tmp/hotice-media-scan-lock-ready","ready");
+sleep(8);
+$q=$db->prepare("SELECT RELEASE_LOCK(?)"); $q->execute([$lock]);
+' &
+scan_lock_pid=$!
+for i in $(seq 1 40); do if [ -f "$lock_ready" ]; then break; fi; sleep 0.1; done
+test -f "$lock_ready"
+busy_scan=$(php backend/bin/scan-media.php 20)
+echo "$busy_scan" | jq -e '.status == "busy"' >/dev/null
+wait "$scan_lock_pid"
+scan_lock_pid=''
+rm -f "$lock_ready"
 # Scanner errors stay quarantined and must be deferred, so a broken upload
 # cannot consume the same small cron batch indefinitely.
 php -r '
