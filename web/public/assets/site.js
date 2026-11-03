@@ -710,6 +710,8 @@
   exportButton?.addEventListener('click', startLocalExport);
   get('clipsInput')?.addEventListener('change', (event) => {
     const files = [...event.target.files];
+    let relinked = 0;
+    let added = 0;
     for (const file of files) {
       if (!file.type.startsWith('video/')) {
         report('Please choose a video file.');
@@ -719,14 +721,30 @@
         report('For this preview, choose clips below 300 MB.');
         continue;
       }
+      const missing = clips.find((clip) => clip.missingMedia &&
+        clip.name.trim().toLocaleLowerCase() === file.name.trim().toLocaleLowerCase());
       const url = URL.createObjectURL(file);
-      const clip = {id:++serial, name:file.name, url,
-        start:0, end:0, duration:0, speed:1};
-      clips.push(clip);
+      if (missing) {
+        missing.url = url;
+        missing.missingMedia = false;
+        if (missing.duration > 0 && missing.end > missing.duration) {
+          missing.end = missing.duration;
+        }
+        relinked++;
+      } else {
+        clips.push({id:++serial, name:file.name, url,
+          start:0, end:0, duration:0, speed:1});
+        added++;
+      }
     }
     if (clips.length && activeClip === -1) selectClip(0);
     renderClips();
-    if (clips.length) report('Imported clips stay on this device; they are not uploaded.');
+    if (relinked) {
+      report(relinked + ' saved timeline clip' + (relinked === 1 ? ' was' : 's were') +
+        ' relinked by filename. Media stays on this device and is not uploaded.');
+    } else if (added) {
+      report('Imported clips stay on this device; they are not uploaded.');
+    }
     event.target.value = '';
   });
   get('addSample')?.addEventListener('click', () => {
