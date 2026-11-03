@@ -320,18 +320,26 @@ class _StudioShellState extends State<StudioShell> {
                       children: [
                         if (!wide) const HotIceLogo(compact: true),
                         if (wide)
-                          Text(
-                            _nav[selected].label,
-                            style: Theme.of(context).textTheme.titleLarge,
+                          Flexible(
+                            child: Text(
+                              _nav[selected].label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
                           ),
                         const Spacer(),
-                        if (wide)
+                        // The side rail already consumes 238 px. Compact
+                        // desktop widths must collapse secondary status labels
+                        // rather than overflow the content toolbar.
+                        if (MediaQuery.sizeOf(context).width >= 1200)
                           Padding(
                             padding: const EdgeInsets.only(right: 10),
                             child: Text('TEST $hoticeAppVersion · $hoticeBuildId',
                               style: const TextStyle(fontSize: 10)),
                           ),
-                        if (wide || MediaQuery.sizeOf(context).width >= 410)
+                        if (MediaQuery.sizeOf(context).width >= 1050 ||
+                            (!wide && MediaQuery.sizeOf(context).width >= 410))
                           TextButton.icon(
                             onPressed: () => navigate(3),
                             icon: const Icon(Icons.bolt_rounded, size: 19),
