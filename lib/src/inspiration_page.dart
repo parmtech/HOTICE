@@ -137,6 +137,27 @@ class _InspirationPageState extends State<InspirationPage> {
                                         style: Theme.of(context)
                                             .textTheme
                                             .titleLarge),
+                                    if (item.previewUrl != null) ...[
+                                      const SizedBox(height: 10),
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: AspectRatio(
+                                          aspectRatio: 16 / 9,
+                                          child: Image.asset(
+                                            'web/public${item.previewUrl!.replaceFirst(RegExp(r'\.webm$'), '.png')}',
+                                            fit: BoxFit.cover,
+                                            semanticLabel: '${item.title} motion study poster, concept visual not AI output',
+                                            errorBuilder: (context, error, stackTrace) =>
+                                                const Center(child: Text('Motion study preview unavailable')),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text('HOTICE motion study · concept visual · not AI output',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall),
+                                    ],
                                     const SizedBox(height: 10),
                                     Text(item.prompt,
                                         maxLines: 5,

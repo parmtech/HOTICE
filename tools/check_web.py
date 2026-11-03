@@ -79,16 +79,18 @@ def main():
         assert entry["publicationStatus"] == "approved"
         assert entry["modelId"] in valid_models
         assert entry["promptStatus"] == "editorial_original"
-        assert entry["previewUrl"] is None, "External videos must be rights-cleared first"
+        assert entry["previewUrl"] == "/assets/examples/" + entry["id"] + ".webm"
+        preview_path = PUBLIC / entry["previewUrl"].lstrip("/")
+        assert preview_path.is_file(), "Missing local motion study: " + str(preview_path)
         provenance = entry["provenance"]
         assert provenance["creator"]
         assert provenance["promptOrigin"]
         assert provenance["promptLicense"]
         assert provenance["licenseEvidence"]
         assert provenance["attributionRequired"] is True
-        assert provenance["attributionText"]
-        assert provenance["mediaLicense"] is None
-        assert provenance["embedAllowed"] is False
+        assert provenance["attributionText"] == "HOTICE original motion study · concept visual, not AI output"
+        assert provenance["mediaLicense"] == "HOTICE first-party procedural motion study; bundled locally; no third-party media; cleared for HOTICE product preview"
+        assert provenance["embedAllowed"] is True
         assert provenance["lastVerified"]
         assert provenance["sourceUrl"] is None
         assert len(entry["prompt"]) >= 20
@@ -97,6 +99,9 @@ def main():
             assert re.fullmatch(r"Actor[0-9]+", role)
             assert "{{" + role + "}}" in entry["prompt"]
     assert len(ids) >= 5, "Catalog needs a meaningful collection"
+    assert len(ids) == 6, "Every original inspiration prompt must have its motion study"
+    assert "not AI model outputs" in raw["notice"]
+    assert "Play original motion examples" in html and "not AI model outputs" in html
     assert "actorNameInput" in html and "actorAssignments" in html
     script = (PUBLIC / "assets" / "site.js").read_text(encoding="utf-8")
     assert "accountApi('/v1/auth/login'" in script and "accountApi('/v1/me'" in script
@@ -121,6 +126,8 @@ def main():
     assert "Upload as separate cloud copy" in script, "Revision conflicts must keep local work recoverable"
     assert "'/v1/projects/' + encodeURIComponent(id)" in script
     assert "actorStorageKey" in script
+    assert "library-preview" in script and "preload = 'metadata'" in script
+    assert "^\\/assets\\/examples\\/[a-z0-9-]+\\.webm$" in script
     assert "Assign your Actors to this prompt" in script
     assert "prompt.replaceAll('{{' + role + '}}', actors[index])" in script
     apache = (PUBLIC / ".htaccess").read_text(encoding="utf-8")

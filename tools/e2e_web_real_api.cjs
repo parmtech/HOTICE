@@ -30,6 +30,7 @@ const contentTypes = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webm': 'video/webm',
 };
 
 const web = http.createServer((req, res) => {
@@ -51,6 +52,10 @@ const web = http.createServer((req, res) => {
       `<meta name="hotice-api-origin" content="${apiOrigin}">`,
     ));
     res.setHeader('Content-Security-Policy', `default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' ${apiOrigin}; media-src 'self' blob:; font-src 'self'; form-action 'self'; frame-ancestors 'none'`);
+    if (req.headers.host === 'studio.hotice.test') {
+      res.setHeader('Access-Control-Allow-Origin', 'https://studio.hotice.test');
+      res.setHeader('Vary', 'Origin');
+    }
   }
   res.writeHead(200, {
     'Cache-Control': 'no-store',
@@ -67,7 +72,13 @@ async function main() {
   });
   const browser = await chromium.launch({headless: true});
   try {
-    const page = await browser.newPage();
+    const context = await browser.newContext({
+      extraHTTPHeaders: {'Host': 'studio.hotice.test'},
+    });
+    const page = await context.newPage();
+    await page.route('http://studio.hotice.test/**', (route) => route.continue({
+      url: route.request().url().replace('http://studio.hotice.test', `http://127.0.0.1:${port}`),
+    }));
     page.setDefaultTimeout(10000);
     const errors = [];
     const apiRequests = [];
@@ -87,7 +98,10 @@ async function main() {
           headers: response.headers(), status: response.status()});
       }
     });
-    await page.goto(`http://127.0.0.1:${port}`, {waitUntil: 'networkidle'});
+    await page.goto(`http://studio.hotice.test:${port}`, {waitUntil: 'load'});
+    await page.locator('#libraryCards .library-card').first().waitFor();
+    assert.equal(await page.locator('#libraryCards video.library-preview').count(), 6,
+      'The shared catalog must expose only six allowlisted local previews.');
     await page.locator('#scenePrompt').fill('A blue sailboat glides across a calm lake at sunrise.');
     await page.locator('#addSample').click();
     await page.locator('#addSample').click();
@@ -142,7 +156,7 @@ async function main() {
     assert.deepEqual(Object.keys(create.body.request).sort(), ['modelId', 'prompt']);
     assert(create.headers['idempotency-key'], 'Job creation must include its idempotency key.');
     const createResponse = apiResponses.find((response) => response.method === 'POST' && response.path === '/v1/jobs');
-    assert.equal(createResponse?.headers['access-control-allow-origin'], `http://127.0.0.1:${port}`,
+    assert.equal(createResponse?.headers['access-control-allow-origin'], 'https://studio.hotice.test',
       'The PHP API must return its exact CORS origin on the real job response.');
     assert.equal(await page.evaluate(() => localStorage.length + sessionStorage.length), 0,
       'Browser credentials must not be persisted in web storage.');
@@ -197,7 +211,7 @@ async function main() {
     const verificationBody = deliverMail();
     const verificationToken = verificationBody.match(/#token=([a-f0-9]{64})/i)?.[1];
     assert(verificationToken, 'CI mail capture must contain the one-time verification URL.');
-    await page.goto(`http://127.0.0.1:${port}/?ciFlow=verify#token=${verificationToken}`, {waitUntil: 'networkidle'});
+    await page.goto(`http://studio.hotice.test:${port}/?ciFlow=verify#token=${verificationToken}`, {waitUntil: 'load'});
     const verificationResponse = apiResponses.filter((response) => response.method === 'POST' && response.path === '/v1/auth/verify-email').at(-1);
     assert.equal(verificationResponse?.status, 200,
       `Browser email verification API response must succeed: ${JSON.stringify(verificationResponse)}`);
@@ -224,7 +238,7 @@ async function main() {
     const resetBody = deliverMail();
     const resetToken = resetBody.match(/#reset=([a-f0-9]{64})/i)?.[1];
     assert(resetToken, 'CI mail capture must contain the one-time password reset URL.');
-    await page.goto(`http://127.0.0.1:${port}/?ciFlow=reset#reset=${resetToken}`, {waitUntil: 'networkidle'});
+    await page.goto(`http://studio.hotice.test:${port}/?ciFlow=reset#reset=${resetToken}`, {waitUntil: 'load'});
     assert.equal(await page.evaluate(() => document.activeElement?.id), 'resetNewPassword',
       'A valid reset link must focus the new-password field.');
     const resetPasswordToggle = page.locator('[data-password-toggle="resetNewPassword"]');
@@ -261,6 +275,7 @@ async function main() {
       'browser password reset, session revocation and old-password rejection',
     ], apiOrigin, realProviderCalls: 0}));
   } finally {
+    await context.close();
     await browser.close();
     await new Promise((resolve) => web.close(resolve));
   }

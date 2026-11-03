@@ -1,6 +1,12 @@
 # HOTICE Inspiration Library — source, rights and release specification
 
-Updated 26 October 2026. This is a staged feature plan, not a claim of connected vendor models or launched scraping.
+Updated 3 November 2026. This is a staged feature plan, not a claim of connected vendor models or launched scraping.
+
+## Implemented first-party motion-study slice (3 November 2026)
+
+The six original prompt templates now each include a locally bundled 640×360 VP9 WebM procedural motion study. The clips are deterministic canvas animations authored for HOTICE, with an embedded **HOTICE MOTION STUDY · CONCEPT ONLY · NOT AI OUTPUT** label. Each inspiration card offers explicit native controls, muted looping playback, and no autoplay. Catalog validation accepts only the exact local `/assets/examples/<template-id>.webm` path and the first-party media provenance record; remote video is rejected. The public copy distinguishes interface concept art and procedural loops from AI model output. Model names remain illustrative demo profiles; paid/live providers are not called.
+
+Validation on this branch: `python tools/check_web.py`, JS syntax checks, `git diff --check`, and `node tools/e2e_web_project_sync.cjs` all pass. The browser run verified all six local video responses and playback, then exercised the synthetic export, local project/relink flow, mock account/jobs/cloud paths; `realProviderCalls: 0`. The WebM streams are VP9 640×360. This slice has not yet passed GitHub CI or merged.
 
 ## Product experience
 
@@ -57,7 +63,7 @@ For future partner/community records, keep the canonical source URL, creator ide
 - [YouTube's embedding instructions](https://support.google.com/youtube/answer/171780) require using the platform's embed code and remain subject to the YouTube API terms and developer policies; some videos disable embeds. Do not download, rehost, hide player branding, or strip attribution. An enabled embed is not permission to copy its prompt or preview image.
 - [Vimeo's embed instructions](https://help.vimeo.com/hc/en-us/articles/12426259908881-How-to-embed-my-video) describe owner-controlled embed privacy, including Anywhere/Nowhere/domain restrictions. Respect the selected setting and recheck it before publication.
 
-Initial release decision: keep the gallery prompt-only with HOTICE-written templates and no remote examples until an individual item passes a documented rights and player check. This provides real searchable examples without implying HOTICE generated third-party clips.
+Release decision: publish original HOTICE procedural motion studies with explicit “concept, not AI output” disclosure. Keep third-party examples out until each item passes documented rights and player checks. Searchable prompts and motion visuals must never imply HOTICE generated AI output when it did not.
 
 ## Namecheap-compatible admin and provider gateway (planned)
 
