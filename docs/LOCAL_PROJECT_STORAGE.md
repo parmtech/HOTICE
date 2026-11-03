@@ -45,6 +45,13 @@ empty workspace over unreadable data. This protects against accidental data
 loss, but it does not provide cross-device backup or key recovery. Device
 backup/restore behavior must be validated on each supported OS before release.
 
+During normal studio use, the app shows whether the latest local snapshot is
+saving, saved, or could not be saved. A failed write offers a retry of the
+latest complete snapshot and explains that the prior saved version is
+protected. It never falls back to plaintext. Successful retry clears the
+warning; the archive queue remains ordered so an older write cannot replace a
+newer snapshot.
+
 This local archive is independent of cloud sync. Cloud upload remains an
 explicit, revocable operation and requires server authorization. A local
 snapshot is not a server account, cloud entitlement, or backup guarantee.

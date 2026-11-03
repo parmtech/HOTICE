@@ -18,13 +18,16 @@ Future<void> main() async {
 
 Future<void> _startHotIce() async {
   final store = HotIceStore();
+  HotIceLocalArchive? archive;
   try {
-    final archive = await HotIceLocalArchive.openOnDevice();
-    final snapshot = await archive.restore();
+    final openedArchive = await HotIceLocalArchive.openOnDevice();
+    archive = openedArchive;
+    final snapshot = await openedArchive.restore();
     if (snapshot != null) store.restoreLocalSnapshot(snapshot);
-    store.addListener(() => archive.enqueue(store.exportLocalSnapshot()));
-    runApp(HotIceApp(initialStore: store));
+    store.addListener(() => openedArchive.enqueue(store.exportLocalSnapshot()));
+    runApp(HotIceApp(initialStore: store, localArchive: openedArchive));
   } catch (_) {
+    archive?.dispose();
     store.dispose();
     runApp(
       const MaterialApp(
@@ -59,8 +62,9 @@ Future<void> _startHotIce() async {
 }
 
 class HotIceApp extends StatefulWidget {
-  const HotIceApp({super.key, this.initialStore});
+  const HotIceApp({super.key, this.initialStore, this.localArchive});
   final HotIceStore? initialStore;
+  final HotIceLocalArchive? localArchive;
 
   @override
   State<HotIceApp> createState() => _HotIceAppState();
@@ -69,6 +73,7 @@ class HotIceApp extends StatefulWidget {
 class _HotIceAppState extends State<HotIceApp> {
   late final HotIceStore store;
   late final AccountApi accountApi;
+  HotIceLocalArchive? get localArchive => widget.localArchive;
   AccountUser? accountUser;
   // Show the public welcome screen immediately while checking secure storage.
   // A verified saved session replaces it once `/v1/me` confirms the token.
@@ -155,6 +160,7 @@ class _HotIceAppState extends State<HotIceApp> {
     store.removeListener(_handleAppearanceChanged);
     store.dispose();
     accountApi.dispose();
+    localArchive?.dispose();
     super.dispose();
   }
 
@@ -182,6 +188,7 @@ class _HotIceAppState extends State<HotIceApp> {
                 ? StudioShell(
                     key: ValueKey(store.selectedWorkspaceId),
                     store: store,
+                    localArchive: widget.localArchive,
                     accountApi: accountApi,
                     authenticatedEmail: accountUser?.email,
                     authenticatedUserId: accountUser?.id,
@@ -205,6 +212,7 @@ class _HotIceAppState extends State<HotIceApp> {
 
 class StudioShell extends StatefulWidget {
   final HotIceStore store;
+  final HotIceLocalArchive? localArchive;
   final AccountApi? accountApi;
   final String? authenticatedEmail;
   final String? authenticatedUserId;
@@ -212,6 +220,7 @@ class StudioShell extends StatefulWidget {
   const StudioShell({
     super.key,
     required this.store,
+    this.localArchive,
     this.accountApi,
     this.authenticatedEmail,
     this.authenticatedUserId,
@@ -359,6 +368,8 @@ class _StudioShellState extends State<StudioShell> {
                       ],
                     ),
                   ),
+                  if (widget.localArchive != null)
+                    LocalArchiveStatusStrip(archive: widget.localArchive!),
                   Expanded(
                     // Switching tabs must not dispose text editors. Keep each
                     // page mounted within this account's keyed StudioShell.
@@ -465,6 +476,67 @@ class _StudioShellState extends State<StudioShell> {
             ),
     );
   }
+}
+
+class LocalArchiveStatusStrip extends StatelessWidget {
+  const LocalArchiveStatusStrip({super.key, required this.archive});
+
+  final HotIceLocalArchive archive;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: archive,
+        builder: (context, _) {
+          final failed = archive.writeState == LocalArchiveWriteState.failed;
+          final saving = archive.writeState == LocalArchiveWriteState.saving;
+          final colorScheme = Theme.of(context).colorScheme;
+          return Semantics(
+            liveRegion: true,
+            child: Material(
+              color: failed ? colorScheme.errorContainer : colorScheme.surface,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      failed
+                          ? Icons.warning_amber_rounded
+                          : saving
+                              ? Icons.sync_rounded
+                              : Icons.check_circle_outline_rounded,
+                      size: 18,
+                      color: failed
+                          ? colorScheme.onErrorContainer
+                          : colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        failed
+                            ? 'Couldn’t save this device copy. Your previous saved version is protected.'
+                            : saving
+                                ? 'Saving on this device…'
+                                : 'Saved on this device',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: failed
+                                  ? colorScheme.onErrorContainer
+                                  : colorScheme.onSurfaceVariant,
+                            ),
+                      ),
+                    ),
+                    if (failed)
+                      TextButton(
+                        onPressed: archive.retryLastWrite,
+                        child: const Text('Retry'),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
 }
 
 class _Destination {
