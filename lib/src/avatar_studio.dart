@@ -639,6 +639,63 @@ class _AvatarsPageState extends State<AvatarsPage> {
     }
   }
 
+  void _viewFaceReference(BuildContext context, AvatarReference photo) {
+    final screenSize = MediaQuery.sizeOf(context);
+    final viewLabel = photo.view?.label ?? 'Unspecified view';
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        child: SizedBox(
+          width: screenSize.width * 0.82,
+          height: screenSize.height * 0.76,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Face reference · $viewLabel',
+                        style: Theme.of(dialogContext).textTheme.titleLarge,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close photo preview',
+                      onPressed: () => Navigator.pop(dialogContext),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Unverified reference · pinch or scroll to zoom'),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => InteractiveViewer(
+                      minScale: 1,
+                      maxScale: 4,
+                      child: EncryptedFacePhotoPreview(
+                        path: photo.localPath,
+                        accountScope: widget.store.selectedWorkspaceId,
+                        width: constraints.maxWidth,
+                        height: constraints.maxHeight,
+                        fit: BoxFit.contain,
+                        semanticLabel: '$viewLabel saved face reference',
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   void openProfile(StudioAvatar avatar) {
     final card = AvatarPromptComposer.identityCard(avatar);
     showModalBottomSheet<void>(
@@ -692,15 +749,24 @@ class _AvatarsPageState extends State<AvatarsPage> {
                             key: ValueKey(photo.id),
                             dense: true,
                             contentPadding: EdgeInsets.zero,
-                            leading: ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: EncryptedFacePhotoPreview(
-                                path: photo.localPath,
-                                accountScope: widget.store.selectedWorkspaceId,
-                                width: 56,
-                                height: 68,
-                                semanticLabel:
-                                    '${photo.view?.label ?? 'Unspecified view'} saved face reference',
+                            leading: Tooltip(
+                              message:
+                                  'View ${photo.view?.label ?? 'saved'} face reference',
+                              child: InkWell(
+                                onTap: () => _viewFaceReference(ctx, photo),
+                                borderRadius: BorderRadius.circular(8),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: EncryptedFacePhotoPreview(
+                                    path: photo.localPath,
+                                    accountScope:
+                                        widget.store.selectedWorkspaceId,
+                                    width: 56,
+                                    height: 68,
+                                    semanticLabel:
+                                        '${photo.view?.label ?? 'Unspecified view'} saved face reference',
+                                  ),
+                                ),
                               ),
                             ),
                             title: Text(photo.view?.label ?? 'Reference'),
