@@ -438,10 +438,33 @@ Append one ledger row per meaningful unit; do not erase history:
 | 2026-11-04 | WP01 local-profile project copy | feat/native-local-project-transfer, latest head `0387edefff2b3975c18df79213c96fd749138bad` (draft PR #78, child of #77) | Add an explicit, on-device copy of one eligible local-profile project into the signed-in stable-ID workspace; assign a new UUID, copy text/settings/storyboard/Actor metadata and reference metadata, preserve source, exclude pending attempts/cloud markers, retain explicit separate cloud save; enforce workspace and 2 MiB archive limits with rollback | Full Flutter suite 72/72; separate state tests cover identity remapping, source preservation, excluded cloud state, invalid source/destination rejection, and archive-overflow rollback; widget tests cover confirmation/cancel and zero API calls. Analyzer zero errors (45 info lints); `git diff --check` passed. Exact-head run 41684231093: Flutter analysis/tests, static browser dry run, source inventory, and Android APK passed; emulator journey is active | PR #78 remains draft and stacked on #77. Await emulator completion; no provider/payment calls. Release remains NOT READY TO PUBLISH |
 | 2026-11-04 | WP02 local archive save health | feat/native-archive-save-health, `8d01b0ca20a99250fb699aa18b70b2e5983fc727` (draft PR #79, child of #78) | Expose saved/saving/failed local archive state; show accessible failure with previous-version protection and retry of the latest complete snapshot; preserve ordered writes; avoid notifications after archive disposal | Full Flutter suite 75/75; analyzer zero errors (45 info lints); `git diff --check` passed. Exact-head run 41686301713 passed inventory, static web/catalog, Flutter, Android APK and emulator smoke | PR #79 remains draft and stacked on #78 → #77 → #73. Physical iOS persistence and device recovery acceptance remain open; release remains NOT READY TO PUBLISH |
 | 2026-11-04 | WP07 browser job status recovery and accessibility of progress | feat/web-job-status-refresh, `bd6bd2a3d283f619996615527b7c7ce468fdea11` (draft PR #81, child of #47) | Restore the user's job list after sign-in; poll queued/processing jobs every five seconds while visible; pause on hidden tabs and refresh immediately on return; stop at terminal/unknown-outcome reconciliation; bounded retry backoff; clear on sign-out and ignore stale-session responses | `node --check` for site.js and browser harness; `npm ci` (0 vulnerabilities); full Chromium `tools/e2e_web_project_sync.cjs` passed foreground/hidden/terminal/reload/reconciliation journey with exactly one idempotent submission and `realProviderCalls=0`; whitespace check passed with CRLF-aware setting. Prior-head run 41689638713 passed static/Flutter checks; APK/emulator were running when a final reconciliation assertion was added. Exact-head run 41690535836 passed static/Flutter checks; Android APK/emulator jobs are in progress | PR #81 remains draft on #47. Await Android APK/emulator completion for bd6bd2a. Live-provider job progress, native clients, hosting and release-candidate integration remain outstanding |
+| 2026-11-04 | WP04 browser secure-media upload vertical slice | feat/browser-cloud-media-upload, `b4817c99264177e47797396dceee7c4ef8d6d081` (draft PR #82, child of #71) | Keep imported clips in page memory; require login, write entitlement, cloud consent, linked project and per-file confirmation; upload bounded MP4/WebM via authenticated private-media API with progress/cancel; disclose pending scan and reconcile uncertain outcomes before manual retry; do not attach media to mock generation | `node --check` for site.js and browser E2E; `python tools/check_web.py`; CRLF-aware whitespace check; Chromium `tools/e2e_web_project_sync.cjs` passed with exact synthetic bytes, pending scan, conflict recovery, cloud consent and `realProviderCalls=0`; exact-head Flutter run 41692041023 was active (static browser and Flutter jobs starting) | PR #82 targets PR #71 because it requires that branch's project file list, private upload, entitlement/quota and scan-state API. Await exact-head CI. Live cPanel/ClamAV, storage quota and production retention verification remain open; release is NOT READY TO PUBLISH |
 
 Decision log template: decision ID; date; problem; considered options; chosen option; reason/evidence; compatibility/data migration; rollback; owner approval where required. Record architecture changes, canonical vault choice, provider enablement and revised performance budgets here or in linked ADRs.
 
 Before stopping, state the exact next action. If blocked, state the missing input and continue independent work where possible. Do not repeatedly restate a blocker as progress. Do not replace the requested product with an easier mock-only objective.
+
+## Latest continuation: consent-based browser media upload
+
+- Draft PR #82 (`feat/browser-cloud-media-upload`) is stacked on PR #71 at
+  `b4817c99264177e47797396dceee7c4ef8d6d081`. A clip remains a browser `File`
+  in memory and does not enter local project JSON or mock generation. Upload
+  requires a signed-in account, active cloud write entitlement, cloud consent,
+  a saved and linked cloud project, and per-file confirmation. Only MP4/WebM up
+  to 20 MiB are offered; XHR shows progress and cancellation. Success states
+  private storage plus pending security scan. Lost responses are reconciled
+  against the linked project's file list before manual retry.
+- Local checks passed: JS syntax, `python tools/check_web.py`, CRLF-aware diff
+  check, `npm ci` (0 reported vulnerabilities), and full Chromium
+  `tools/e2e_web_project_sync.cjs` using synthetic bytes. It confirms exact
+  uploaded bytes, scan-pending status and no media in the mock job; no paid
+  provider calls were made. Exact-head Flutter run 41692041023 was in progress
+  at handoff; report the final conclusion after it completes.
+- Next: review PR #82 checks and any findings, update the PR/handoff/issue #33
+  with exact evidence, then continue integration of authenticated account,
+  secure media, job routing and native clients. Real cPanel/ClamAV operation,
+  paid providers and release-candidate gates remain unverified; keep release
+  NOT READY TO PUBLISH.
 
 
 ## Appendix 1. Open PR inventory observed on 4 November 2026
@@ -461,6 +484,7 @@ Before stopping, state the exact next action. If blocked, state the missing inpu
 | [#75](https://github.com/parmtech/HOTICE/pull/75) | ci: cancel superseded Flutter validation runs | fix/flutter-ci-cancel-superseded | main | 4ffe4c70de17b0007798760a3a997557c308820d |
 | [#78](https://github.com/parmtech/HOTICE/pull/78) | feat(client): copy local profile projects into account workspace | feat/native-local-project-transfer | feat/native-stable-account-identity (#77) | 0387edefff2b3975c18df79213c96fd749138bad |
 | [#79](https://github.com/parmtech/HOTICE/pull/79) | feat(client): surface local archive save health | feat/native-archive-save-health | feat/native-local-project-transfer (#78) | eeec47f21d9b0af9916ad8fa85e9623312fe56ed |
+| [#82](https://github.com/parmtech/HOTICE/pull/82) | feat(web): add consent-based private media uploads | feat/browser-cloud-media-upload | feat/media-short-lived-access (#71) | b4817c99264177e47797396dceee7c4ef8d6d081 |
 | [#54](https://github.com/parmtech/HOTICE/pull/54) | [CI] Attach revisioned release dependency inventory | feat/release-sbom-artifacts | feat/authenticated-web-job-stack | e436b752fbaab27284be0f75f5c3a98e5157ab5e |
 | [#53](https://github.com/parmtech/HOTICE/pull/53) | Integrate web jobs with verified account lifecycle | feat/authenticated-web-job-stack | main (retargeted integration root) | fb155530bf898676a6d4cd68997b8a44bb24d4ac |
 | [#63](https://github.com/parmtech/HOTICE/pull/63) | Harden cPanel deployment probes in web stack | fix/web-stack-cpanel-probe-hardening | feat/authenticated-web-job-stack (#53) | ca9684640e02c764e5b6cd38570bf57ccbfef3f7 |
