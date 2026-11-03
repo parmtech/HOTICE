@@ -1,6 +1,6 @@
 # HOTICE
 
-> **Continue development here:** [HOTICE — Next Model Handoff](docs/CONTINUE_HERE.md). This file records the last verified GitHub state, user decisions, current CI/build limitations, and exact next development steps. Recheck the latest `main` branch and Actions results before continuing.
+> **Start here:** [HOTICE Master Blueprint and AI Handoff](HOTICE_HANDOFF.md) — canonical A–Z UX/product architecture, implementation sequence, current PR/CI inventory and mandatory progress ledger. Historical documents below may describe older branches; inspect current source and evidence before relying on their status claims.
 
 **Cinematic AI Video Studio — Flutter client and PHP/MySQL cloud API foundation**
 
