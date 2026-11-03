@@ -57,6 +57,7 @@ class FaceReferenceVault {
 
   static const _keyName = 'hotice-face-reference-key-v1';
   static const _maxPhotoBytes = 15 * 1024 * 1024;
+  static const _maxEncryptedPhotoBytes = _maxPhotoBytes + 45;
   static final _idPattern = RegExp(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
   );
@@ -350,8 +351,17 @@ class FaceReferenceVault {
         'Encrypted photo is unavailable.',
       );
     }
-    final data = await file.readAsBytes();
+    final input = await file.open(mode: FileMode.read);
+    late final List<int> data;
+    try {
+      data = await input.read(_maxEncryptedPhotoBytes + 1);
+    } finally {
+      await input.close();
+    }
     final encryptedLength = data.length;
+    if (encryptedLength > _maxEncryptedPhotoBytes) {
+      throw const FaceReferenceVaultException('Encrypted photo is malformed.');
+    }
     final legacy = _hasHeader(data, _legacyHeader);
     final current = !legacy && _hasHeader(data, _header);
     if (!legacy && !current) {

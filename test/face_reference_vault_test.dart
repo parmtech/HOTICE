@@ -79,6 +79,16 @@ void main() {
     );
   });
 
+  test('rejects oversized encrypted files before unbounded reads', () async {
+    final file = File('${root.path}/$idA.aes');
+    await file.writeAsBytes(List<int>.filled(15 * 1024 * 1024 + 46, 0));
+
+    await expectLater(
+      vault.decryptPhoto(file.path),
+      throwsA(isA<FaceReferenceVaultException>()),
+    );
+  });
+
   test('does not replace an existing encrypted reference ID', () async {
     final source = File('${root.path}/source.jpg');
     await source.writeAsBytes([0xff, 0xd8, 0xff, 1, 2, 3]);
