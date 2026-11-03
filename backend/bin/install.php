@@ -41,6 +41,16 @@ try {
     if (!in_array('scan_status', $fileColumns, true)) {
         $app->database()->exec("ALTER TABLE cloud_files ADD COLUMN scan_status ENUM('pending','clean','blocked') NOT NULL DEFAULT 'pending' AFTER sha256");
     }
+    // Existing quarantined uploads become immediately due once; scanner
+    // failures are then deferred, preventing poisoned files from starving
+    // otherwise healthy uploads on small shared-host cron batches.
+    if (!in_array('next_scan_at', $fileColumns, true)) {
+        $app->database()->exec('ALTER TABLE cloud_files ADD COLUMN next_scan_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER scan_status');
+    }
+    $scanIndex = $app->database()->query("SHOW INDEX FROM cloud_files WHERE Key_name='ix_files_scan_schedule'")->fetch(PDO::FETCH_ASSOC);
+    if (!$scanIndex) {
+        $app->database()->exec('ALTER TABLE cloud_files ADD INDEX ix_files_scan_schedule (scan_status,next_scan_at,created_at,id)');
+    }
     echo "HOTICE tables installed; private media directory verified.\n";
 } catch (\Throwable $e) {
     $detail = '';
