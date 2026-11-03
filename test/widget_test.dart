@@ -12,17 +12,30 @@ void main() {
     final store = HotIceStore();
     store.signInAuthenticated('server-user-01', 'before@example.com');
     final projectId = store.addProject('Account-owned local cut');
+    store.markCloudRevision(projectId, 2);
+    store.savePendingMockSubmission(PendingMockSubmission(
+      idempotencyKey: 'intent-stable-id-12345678',
+      accountUserId: 'server-user-01',
+      projectId: projectId,
+      prompt: 'A local scene prompt',
+      createdAt: DateTime.utc(2026, 11, 4),
+    ));
     store.signInAuthenticated('server-user-01', 'after@example.com');
     expect(store.projects.single.id, projectId);
+    expect(store.cloudRevision(projectId), 2);
+    expect(store.pendingMockSubmissions.single.accountUserId, 'server-user-01');
     expect(store.selectedAccount, 'after@example.com');
 
     store.signInAuthenticated('server-user-02', 'after@example.com');
     expect(store.projects, isEmpty);
+    expect(store.cloudRevision(projectId), 0);
+    expect(store.pendingMockSubmissions, isEmpty);
     store.signInAuthenticated('server-user-01', 'renamed@example.com');
     expect(store.projects.single.id, projectId);
 
     store.signInDemo('renamed@example.com');
     expect(store.projects, isEmpty);
+    expect(store.pendingMockSubmissions, isEmpty);
     store.signInAuthenticated('server-user-01', 'renamed@example.com');
     expect(store.projects.single.id, projectId);
     store.dispose();
