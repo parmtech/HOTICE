@@ -161,6 +161,7 @@ $config=require "backend/config.php"; $db=(new Hotice\App($config))->database();
 $q=$db->prepare("SELECT storage_name,scan_status,TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),next_scan_at) AS due FROM cloud_files WHERE id=?"); $q->execute([$argv[1]]); $row=$q->fetch();
 $path=$config["storage_path"]."/".$row["storage_name"];
 if (!is_file($path) || file_put_contents($path,file_get_contents("/tmp/hotice-ci-test.png"))===false) exit(1);
+clearstatcache(true,$path);
 $db->prepare("UPDATE cloud_files SET sha256=?,byte_size=?,scan_status=\x27pending\x27,next_scan_at=UTC_TIMESTAMP() WHERE id=?")
   ->execute([hash_file("sha256",$path),filesize($path),$argv[1]]);
 ' "$file"
