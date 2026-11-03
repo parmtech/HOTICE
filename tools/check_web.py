@@ -51,7 +51,9 @@ def main():
     for element_id in ("projectTitle", "saveLocalProject", "localProjects", "cloudSyncConsent",
                        "loadCloudProjects", "cloudProjects", "cloudProjectStatus"):
         assert 'id="' + element_id + '"' in html, "Missing local/cloud project control: " + element_id
-    assert 'type="checkbox"' in html and "I agree to sync the saved project I choose" in html
+    assert 'type="checkbox"' in html and "I agree to load or sync the saved project I choose" in html
+    assert "Upload selected clip" not in html, "Media upload actions are scoped to imported timeline files"
+    assert "private, limited to MP4/WebM clips up to 20 MiB" in html
 
     raw = json.loads((PUBLIC / "assets" / "inspiration.json").read_text(encoding="utf-8"))
     assert raw["schemaVersion"] == 1
@@ -97,6 +99,10 @@ def main():
     assert "accountApi('/v1/projects'" in script, "Cloud listing must use the shared project API"
     assert "method: 'PUT', token: accountToken, body" in script, "Cloud writes must be authenticated"
     assert "projectConsent?.checked" in script, "Cloud actions must require explicit consent"
+    assert "video/mp4', 'video/webm" in script and "20 * 1024 * 1024" in script
+    assert "Security scan pending" in script and "withCredentials = false" in script
+    assert "uploadXhr?.abort()" in script, "Users must be able to cancel active uploads"
+    assert "reconcileMediaUpload" in script, "Ambiguous uploads must be checked before manual retry"
     assert "Upload as separate cloud copy" in script, "Revision conflicts must keep local work recoverable"
     assert "'/v1/projects/' + encodeURIComponent(id)" in script
     assert "actorStorageKey" in script
