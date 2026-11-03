@@ -745,6 +745,8 @@ class _AvatarsPageState extends State<AvatarsPage> {
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
                           final photo = references[index];
+                          final viewLabel =
+                              photo.view?.label ?? 'Unspecified view';
                           return ListTile(
                             key: ValueKey(photo.id),
                             dense: true,
@@ -764,12 +766,12 @@ class _AvatarsPageState extends State<AvatarsPage> {
                                     width: 56,
                                     height: 68,
                                     semanticLabel:
-                                        '${photo.view?.label ?? 'Unspecified view'} saved face reference',
+                                        '$viewLabel saved face reference',
                                   ),
                                 ),
                               ),
                             ),
-                            title: Text(photo.view?.label ?? 'Reference'),
+                            title: Text(viewLabel),
                             subtitle: const Text('Unverified face photo'),
                             trailing: IconButton(
                               tooltip: 'Remove this reference',
@@ -778,10 +780,10 @@ class _AvatarsPageState extends State<AvatarsPage> {
                                 final confirmed = await showDialog<bool>(
                                       context: ctx,
                                       builder: (dialogContext) => AlertDialog(
-                                        title: const Text(
-                                            'Remove this face reference?'),
-                                        content: const Text(
-                                          'This removes the saved reference from this Actor. HOTICE deletes only the encrypted copy it owns; an imported original photo is left unchanged.',
+                                        title: Text(
+                                            'Remove $viewLabel reference from ${avatar.name}?'),
+                                        content: Text(
+                                          'This removes the $viewLabel face reference from ${avatar.name}. HOTICE deletes only its encrypted copy; your imported original photo stays unchanged.',
                                         ),
                                         actions: [
                                           TextButton(

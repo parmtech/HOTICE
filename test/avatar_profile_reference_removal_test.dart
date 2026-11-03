@@ -38,7 +38,13 @@ void main() {
 
     await tester.tap(find.byTooltip('Remove this reference'));
     await tester.pumpAndSettle();
-    expect(find.text('Remove this face reference?'), findsOneWidget);
+    expect(find.text('Remove Front reference from Nova?'), findsOneWidget);
+    expect(
+      find.text(
+        'This removes the Front face reference from Nova. HOTICE deletes only its encrypted copy; your imported original photo stays unchanged.',
+      ),
+      findsOneWidget,
+    );
     await tester.tap(find.text('Keep reference'));
     await tester.pumpAndSettle();
     expect(find.text('Saved face references: 1 (encrypted on this device)'),
