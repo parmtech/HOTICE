@@ -52,6 +52,17 @@ test('passes healthy API and denies every protected path probe', async () => {
   ]) assert.ok(requests.some(({ url }) => url.endsWith(protectedAlias)), `missing probe: ${protectedAlias}`);
 });
 
+test('aborts a request that exceeds its deadline and validates timeout bounds', async () => {
+  const result = await verifyDeployment('https://api.example.com', async (_url, options) =>
+    new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+    }), { timeoutMs: 5 });
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.includes('/health: request failed'));
+  await assert.rejects(verifyDeployment('https://api.example.com', fetch, { timeoutMs: 0 }), /between 1 and 30000/);
+  await assert.rejects(verifyDeployment('https://api.example.com', fetch, { timeoutMs: 30001 }), /between 1 and 30000/);
+});
+
 test('fails closed when a secret-bearing path is publicly served', async () => {
   const result = await verifyDeployment('https://api.example.com', async (url, options) =>
     options.headers.Origin ? mockResponse(403, {}, { 'content-type': 'application/json' }) : url.endsWith('/health')

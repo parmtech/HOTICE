@@ -47,21 +47,28 @@ function deploymentOrigin(input) {
   return url.origin;
 }
 
-async function verifyDeployment(input, fetchImpl = fetch) {
+async function verifyDeployment(input, fetchImpl = fetch, { timeoutMs = 8000 } = {}) {
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
+    throw new Error('The per-request timeout must be between 1 and 30000 milliseconds.');
+  }
   const origin = deploymentOrigin(input);
   const failures = [];
   const request = async (path, headers = {}) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       return await fetchImpl(`${origin}${path}`, {
         method: 'GET',
         redirect: 'manual',
         cache: 'no-store',
-        signal: AbortSignal.timeout(10_000),
+        signal: controller.signal,
         headers: { Accept: 'application/json', ...headers },
       });
     } catch {
       failures.push(`${path}: request failed`);
       return null;
+    } finally {
+      clearTimeout(timeout);
     }
   };
 
