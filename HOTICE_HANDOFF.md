@@ -548,3 +548,24 @@ PR #65 is a draft child of #64. Its exact current head is `b3cf9ea`; the exact-h
 | #32 | 3eac894445bac527dd53f8c0ebd7f77b75b55bf0 | [HOTICE PHP Backend Security & API / 40735266040](https://github.com/parmtech/HOTICE/actions/runs/40735266040) | completed; success |
 
 Repository references: [release issue #33](https://github.com/parmtech/HOTICE/issues/33), docs/READY_TO_PUBLISH.md, backend/README.md, backend/ADMIN_PANEL.md, backend/PROVIDER_DISPATCH_SAFETY.md, backend/CPANEL_RELEASE_CHECK.md, docs/API_MODEL_COMPATIBILITY.md and docs/SMART_REFERENCE_ENGINE.md where present on the relevant feature branch. Paths that do not exist on the selected branch are dependencies to inspect elsewhere, not permission to fabricate files or claims.
+
+## Latest continuation: native local-profile project transfer
+
+- Draft PR #78, branch `feat/native-local-project-transfer`, is open from
+  PR #77 head `2d6aa458c469fd9e91c2e1f1bbb47c71bef763a5`.
+- This slice adds an explicit, device-local copy from an eligible UUID project
+  in a saved local profile into the authenticated stable-ID workspace. The
+  source remains intact; the new project receives a new UUID; pending jobs and
+  cloud revision state are not copied; cloud upload remains a separate action.
+- The confirmation describes copied prompt/settings, storyboard, Actor notes,
+  and reference metadata, and excludes media bytes and pending attempts. No API
+  request is made by the copy operation.
+- Local evidence on the child branch: complete Flutter test suite passed (71
+  tests); `flutter analyze --no-fatal-infos` had zero errors and 45
+  informational lints; `git diff --check` passed. This is local verification;
+  exact-head GitHub CI is pending until the child PR is pushed.
+- Issue #33 has a progress comment. Exact-head GitHub CI is pending for
+  `12a26a603fac8d2cf8847f196595065c5d7abce9`; the first workflow lookup had
+  not yet surfaced PR-triggered runs. Next: refresh PR #78 and sibling #77/#70
+  checks, then update this ledger with exact outcomes. Keep release NOT READY
+  TO PUBLISH until all release gates pass.
