@@ -89,7 +89,7 @@ echo "$scan_result" | jq -e '.scannedClean == 1 and .blocked == 1 and .retryable
 # cannot consume the same small cron batch indefinitely.
 php -r '
 require_once "backend/src/App.php";
-$db = (new Hotice\\App(require "backend/config.php"))->database();
+$db = (new Hotice\App(require "backend/config.php"))->database();
 $q = $db->prepare("SELECT TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),next_scan_at) FROM cloud_files WHERE id=? AND scan_status=\x27pending\x27");
 $q->execute([$argv[1]]);
 $seconds = $q->fetchColumn();
@@ -99,7 +99,7 @@ if ($seconds === false || (int)$seconds < 240 || (int)$seconds > 300) exit(1);
 # scanned while the failed file is still deferred.
 php -r '
 require_once "backend/src/App.php";
-$db = (new Hotice\\App(require "backend/config.php"))->database();
+$db = (new Hotice\App(require "backend/config.php"))->database();
 $db->prepare("UPDATE cloud_files SET scan_status=\x27pending\x27,next_scan_at=UTC_TIMESTAMP() WHERE id=?")->execute([$argv[1]]);
 ' "$file"
 rescanned=$(php backend/bin/scan-media.php 20)
