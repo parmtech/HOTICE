@@ -350,9 +350,9 @@ class _AvatarsPageState extends State<AvatarsPage> {
                   'HOTICE can add these notes to demo video prompts. Real 3D scanning, facial matching and provider-specific references are not active.',
                 ),
                 const SizedBox(height: 14),
-                Text('Imported face references: '
+                Text('Saved face references: '
                     '${widget.store.avatarPackFor(avatar.name).assets.length} '
-                    '(session only)'),
+                    '(encrypted on this device)'),
                 for (final photo in widget.store.avatarPackFor(avatar.name).assets)
                   ListTile(
                     dense: true,

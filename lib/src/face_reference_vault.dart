@@ -32,7 +32,8 @@ class StoredFaceReference {
 }
 
 /// AES-GCM encrypted, app-private storage for consented face-reference images.
-/// The index remains session-only until stable workspace persistence is added.
+/// Reference metadata and ownership live in the separate encrypted local
+/// project archive; image bytes never live in that JSON archive.
 class FaceReferenceVault {
   FaceReferenceVault({required this.directory, required this.keyLoader});
 
