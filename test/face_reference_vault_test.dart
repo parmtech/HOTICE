@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hotice/src/face_reference_vault.dart';
 
@@ -14,7 +15,11 @@ void main() {
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('hotice-face-vault-test-');
-    vault = FaceReferenceVault(directory: root, keyLoader: () async => key);
+    vault = FaceReferenceVault(
+      directory: root,
+      keyLoader: () async => key,
+      accountScope: 'workspace-a',
+    );
   });
 
   tearDown(() async {
@@ -105,9 +110,62 @@ void main() {
     final wrongKey = FaceReferenceVault(
       directory: root,
       keyLoader: () async => List<int>.filled(32, 38),
+      accountScope: 'workspace-a',
     );
     await expectLater(
       wrongKey.decryptPhoto(fresh.path),
+      throwsA(isA<FaceReferenceVaultException>()),
+    );
+  });
+
+  test('workspace key derivation prevents cross-workspace decryption',
+      () async {
+    final stored = await vault.encryptPhotoBytes(
+      [0xff, 0xd8, 0xff, 1, 2, 3],
+      referenceId: idA,
+    );
+    final otherWorkspace = FaceReferenceVault(
+      directory: root,
+      keyLoader: () async => key,
+      accountScope: 'workspace-b',
+    );
+    await expectLater(
+      otherWorkspace.decryptPhoto(stored.path),
+      throwsA(isA<FaceReferenceVaultException>()),
+    );
+    expect(await vault.decryptPhoto(stored.path), [0xff, 0xd8, 0xff, 1, 2, 3]);
+  });
+
+  test('v2 photo lazily migrates to v3 under its workspace key', () async {
+    final plain = [0xff, 0xd8, 0xff, 8, 7, 6];
+    final cipher = AesGcm.with256bits();
+    final legacyHeader = [...'HOTICE-FACE-REF'.codeUnits, 2, 0];
+    final aad = [...legacyHeader, ...idA.codeUnits];
+    final box = await cipher.encrypt(
+      plain,
+      secretKey: SecretKey(key),
+      nonce: cipher.newNonce(),
+      aad: aad,
+    );
+    final bytes = <int>[
+      ...legacyHeader,
+      ...box.nonce,
+      ...box.mac.bytes,
+      ...box.cipherText
+    ];
+    final path = '${root.path}/$idA.aes';
+    await File(path).writeAsBytes(bytes, flush: true);
+
+    expect(await vault.decryptPhoto(path), plain);
+    final migrated = await File(path).readAsBytes();
+    expect(migrated.take(17).toList(), [...'HOTICE-FACE-REF'.codeUnits, 3, 0]);
+    final otherWorkspace = FaceReferenceVault(
+      directory: root,
+      keyLoader: () async => key,
+      accountScope: 'workspace-b',
+    );
+    await expectLater(
+      otherWorkspace.decryptPhoto(path),
       throwsA(isA<FaceReferenceVaultException>()),
     );
   });

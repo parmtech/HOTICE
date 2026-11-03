@@ -110,7 +110,9 @@ class _AvatarsPageState extends State<AvatarsPage> {
         throw const AvatarReferenceBackupException(
             'Encrypted face-photo storage is currently available on Android and iOS.');
       }
-      final vault = await FaceReferenceVault.openOnDevice();
+      final vault = await FaceReferenceVault.openOnDevice(
+        accountScope: workspace,
+      );
       final photos = <AvatarBackupPhoto>[];
       for (final reference in pack.assets) {
         if (reference.view == null) {
@@ -205,7 +207,9 @@ class _AvatarsPageState extends State<AvatarsPage> {
         throw const AvatarReferenceBackupException(
             'Encrypted face-photo storage is currently available on Android and iOS.');
       }
-      final vault = await FaceReferenceVault.openOnDevice();
+      final vault = await FaceReferenceVault.openOnDevice(
+        accountScope: workspace,
+      );
       final createdPaths = <String>[];
       final references = <AvatarReference>[];
       try {
@@ -394,6 +398,7 @@ class _AvatarsPageState extends State<AvatarsPage> {
   }
 
   Future<void> startRealCapture(StudioAvatar avatar) async {
+    final workspace = widget.store.selectedWorkspaceId;
     if (widget.store.avatarPackFor(avatar.name).assets.length > 11) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Remove some previous photos before adding five more.'),
@@ -401,12 +406,24 @@ class _AvatarsPageState extends State<AvatarsPage> {
       return;
     }
     final photos = await Navigator.of(context).push<List<CapturedFacePhoto>>(
-      MaterialPageRoute(builder: (_) => const LiveFaceScanPage()),
+      MaterialPageRoute(
+        builder: (_) => LiveFaceScanPage(accountScope: workspace),
+      ),
     );
     if (photos == null || photos.isEmpty) return;
     if (!mounted) {
       for (final photo in photos) {
         try { await File(photo.path).delete(); } catch (_) {}
+      }
+      return;
+    }
+    if (workspace != widget.store.selectedWorkspaceId) {
+      for (final photo in photos) {
+        try {
+          await (await FaceReferenceVault.openOnDevice(
+            accountScope: workspace,
+          )).deletePhoto(photo.path);
+        } catch (_) {}
       }
       return;
     }
@@ -437,7 +454,11 @@ class _AvatarsPageState extends State<AvatarsPage> {
       if (success) {
         saved++;
       } else {
-        try { await (await FaceReferenceVault.openOnDevice()).deletePhoto(shot.path); } catch (_) {}
+        try {
+          await (await FaceReferenceVault.openOnDevice(
+            accountScope: workspace,
+          )).deletePhoto(shot.path);
+        } catch (_) {}
       }
     }
     if (!mounted) return;
@@ -492,6 +513,7 @@ class _AvatarsPageState extends State<AvatarsPage> {
       ),
     );
     if (!mounted || consent != true) return;
+    final workspace = widget.store.selectedWorkspaceId;
     String? selectedPickerPath;
     try {
       final file = await FilePicker.pickFile(type: FileType.image);
@@ -531,12 +553,15 @@ class _AvatarsPageState extends State<AvatarsPage> {
       final id = createLocalProjectId();
       late final StoredFaceReference encrypted;
       try {
-        encrypted = await (await FaceReferenceVault.openOnDevice())
+        encrypted = await (await FaceReferenceVault.openOnDevice(
+          accountScope: workspace,
+        ))
             .encryptPhoto(File(path), referenceId: id);
       } finally {
         await _removePickerCacheCopy(path);
       }
-      final saved = widget.store.addAvatarReference(avatar.name, AvatarReference(
+      final saved = workspace == widget.store.selectedWorkspaceId &&
+          widget.store.addAvatarReference(avatar.name, AvatarReference(
         id: encrypted.id,
         ownerName: avatar.name,
         role: ReferenceRole.avatar,
@@ -547,7 +572,9 @@ class _AvatarsPageState extends State<AvatarsPage> {
         ownedTemporaryFile: true,
       ));
       if (!saved) {
-        await (await FaceReferenceVault.openOnDevice())
+        await (await FaceReferenceVault.openOnDevice(
+          accountScope: workspace,
+        ))
             .deletePhoto(encrypted.path);
       }
       if (!mounted) return;
