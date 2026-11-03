@@ -264,17 +264,31 @@
   const video = get('previewVideo');
   const list = get('clipTimeline');
   const emptyStage = get('stageEmpty');
+  let remotePreviewUrl = null;
+  let remotePreviewFileId = null;
+  let remoteMediaAbort = null;
   const inspector = get('inspectorFields');
   const inspectorEmpty = get('inspectorEmpty');
   function currentClip() { return clips[activeClip] || null; }
   function resetVideo() {
     if (!video) return;
+    remoteMediaAbort?.abort();
+    remoteMediaAbort = null;
     video.pause();
     video.removeAttribute('src');
     video.load();
+    if (remotePreviewUrl) URL.revokeObjectURL(remotePreviewUrl);
+    remotePreviewUrl = null;
+    remotePreviewFileId = null;
     video.classList.remove('has-video');
     emptyStage.hidden = false;
   }
+  window.addEventListener('pagehide', () => {
+    remoteMediaAbort?.abort();
+    if (remotePreviewUrl) URL.revokeObjectURL(remotePreviewUrl);
+    remotePreviewUrl = null;
+    remotePreviewFileId = null;
+  });
   function selectClip(index) {
     if (!clips[index]) return;
     sequence = false;
@@ -1211,6 +1225,9 @@
       if (button.textContent === 'Sync to cloud' || button.textContent === 'Sync updates' ||
           button.textContent === 'Upload as separate cloud copy') button.disabled = !canWrite;
     });
+    get('cloudProjects')?.querySelectorAll('[data-cloud-action]').forEach((button) => {
+      button.disabled = !cloudActionAllowed(button.dataset.cloudAction === 'write');
+    });
     if (!accountToken) cloudProjectStatus('Sign in and confirm consent to load or sync cloud projects.');
     else if (!projectConsent?.checked) cloudProjectStatus('Check the consent box before loading or syncing project data.');
     else if (!accountCanReadCloud) cloudProjectStatus('This account has no readable cloud entitlement. Local projects remain available.');
@@ -1294,6 +1311,14 @@
           ? openLocalProject(linked.id)
           : downloadCloudProject(remote.id));
         card.append(action);
+        const mediaPanel = make('div', 'cloud-media-panel');
+        const mediaButton = make('button', 'tool', 'View secure media');
+        mediaButton.type = 'button';
+        mediaButton.disabled = !cloudActionAllowed(false);
+        mediaButton.dataset.cloudAction = 'read';
+        mediaButton.addEventListener('click', () => loadCloudMedia(remote.id, mediaPanel));
+        mediaPanel.setAttribute('aria-live', 'polite');
+        card.append(mediaButton, mediaPanel);
         root.append(card);
       }
       cloudProjectStatus('Cloud project list loaded. Media and Actor photos were not downloaded.');
@@ -1301,6 +1326,147 @@
       cloudProjectStatus(error.status === 403
         ? 'Cloud project list is not available for this account.'
         : 'Could not load the cloud project list. Local projects are unchanged.');
+    }
+  }
+
+  async function loadCloudMedia(projectId, panel) {
+    if (!cloudActionAllowed(false)) {
+      panel.replaceChildren(make('small', 'editor-note', 'Sign in and confirm cloud consent to view secure media.'));
+      return;
+    }
+    const refresh = make('button', 'tool', 'Refresh scan status');
+    refresh.type = 'button';
+    refresh.disabled = true;
+    const list = make('div', 'cloud-media-list');
+    panel.replaceChildren(refresh, make('small', 'editor-note', 'Loading secure media metadata…'));
+    try {
+      const response = await accountApi('/v1/projects/' + encodeURIComponent(projectId), {token: accountToken});
+      if (!Array.isArray(response.files) || response.files.some((file) => !file ||
+          typeof file.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(file.id) ||
+          typeof file.mime !== 'string' || !Number.isInteger(Number(file.byte_size)) ||
+          !['pending', 'clean', 'blocked'].includes(file.scan_status))) {
+        throw new Error('Invalid cloud media response.');
+      }
+      const render = (files) => {
+        list.replaceChildren();
+        if (!files.length) list.append(make('small', 'editor-note', 'No cloud media is stored in this project.'));
+        for (const file of files) {
+          if (!file || typeof file.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(file.id) ||
+              !Number.isInteger(Number(file.byte_size)) || !['pending', 'clean', 'blocked'].includes(file.scan_status)) continue;
+          const item = make('div', 'cloud-media-item');
+          const label = (file.mime || 'Media') + ' · ' + (Number(file.byte_size) / 1048576).toFixed(2) + ' MiB';
+          item.append(make('strong', '', label));
+          const scanLabel = file.scan_status === 'clean' ? 'Security scan passed' :
+            file.scan_status === 'blocked' ? 'Blocked by security scan' : 'Security scan pending';
+          item.append(make('small', 'editor-note', scanLabel));
+          if (file.scan_status === 'clean' && ['video/mp4', 'video/webm'].includes(file.mime)) {
+            const preview = make('button', 'tool', 'Secure preview');
+            preview.type = 'button';
+            preview.dataset.cloudAction = 'read';
+            preview.addEventListener('click', () => previewCloudMedia(file));
+            item.append(preview);
+          }
+          if (accountCanWriteCloud) {
+            const remove = make('button', 'tool', 'Remove cloud file');
+            remove.type = 'button';
+            remove.disabled = !cloudActionAllowed(true);
+            remove.dataset.cloudAction = 'write';
+            remove.addEventListener('click', () => deleteCloudMedia(projectId, file, panel));
+            item.append(remove);
+          }
+          list.append(item);
+        }
+        refresh.disabled = !cloudActionAllowed(false);
+        refresh.dataset.cloudAction = 'read';
+        panel.replaceChildren(refresh, list);
+      };
+      render(response.files);
+      refresh.addEventListener('click', () => loadCloudMedia(projectId, panel));
+    } catch (error) {
+      panel.replaceChildren(make('small', 'editor-note', error.status === 403
+        ? 'Cloud media metadata is unavailable for this account.'
+        : 'Could not load secure media metadata. Your device-local files are unchanged.'));
+    }
+  }
+
+  async function previewCloudMedia(file) {
+    if (!cloudActionAllowed(false) || !['video/mp4', 'video/webm'].includes(file.mime)) return;
+    const sessionToken = accountToken;
+    if (remotePreviewUrl) resetVideo();
+    remoteMediaAbort?.abort();
+    const controller = new AbortController();
+    remoteMediaAbort = controller;
+    report('Checking scan status and requesting short-lived media access…');
+    try {
+      const grant = await accountApi('/v1/files/' + encodeURIComponent(file.id) + '/access-grants', {
+        method: 'POST', token: sessionToken,
+      });
+      if (accountToken !== sessionToken || !/^[a-f0-9]{64}$/i.test(grant.accessToken || '') ||
+          grant.tokenType !== 'Hotice-Media' || grant.contentPath !== '/v1/media/' + file.id + '/content') {
+        throw new Error('Secure media access could not be verified.');
+      }
+      if (!cloudActionAllowed(false)) throw new Error('Cloud consent was revoked.');
+      const response = await fetch(accountApiOrigin + grant.contentPath, {
+        method: 'GET', mode: 'cors', credentials: 'omit', cache: 'no-store', redirect: 'error',
+        signal: controller.signal,
+        headers: {Accept: file.mime, Authorization: 'Hotice-Media ' + grant.accessToken},
+      });
+      if (!response.ok || accountToken !== sessionToken) {
+        const error = new Error('Secure media content is unavailable.');
+        error.status = response.status;
+        throw error;
+      }
+      const blob = await response.blob();
+      if (!blob.size || blob.size > 20 * 1024 * 1024 ||
+          (blob.type && blob.type.split(';')[0] !== file.mime) ||
+          !cloudActionAllowed(false) || accountToken !== sessionToken) {
+        throw new Error('Secure media content did not match the expected file.');
+      }
+      remoteMediaAbort = null;
+      resetVideo();
+      remotePreviewUrl = URL.createObjectURL(blob);
+      remotePreviewFileId = file.id;
+      video.src = remotePreviewUrl;
+      video.classList.add('has-video');
+      emptyStage.hidden = true;
+      inspector.hidden = true;
+      inspectorEmpty.hidden = false;
+      inspectorEmpty.textContent = 'Secure cloud preview. A short-lived, session-bound grant was used; playback stays in this page.';
+      report('Secure preview ready. The access grant is short-lived and is not saved on this device.');
+    } catch (error) {
+      if (remoteMediaAbort === controller) remoteMediaAbort = null;
+      report(error.name === 'AbortError' ? 'Secure preview canceled because cloud access changed.' : error.status === 423
+        ? 'This file is not available until its security scan passes. Refresh scan status later.'
+        : 'Secure preview could not be loaded. Refresh the media list and try again if the scan passed.');
+    }
+  }
+
+  async function deleteCloudMedia(projectId, file, panel) {
+    if (!cloudActionAllowed(true) || !window.confirm('Remove this file from its private HOTICE cloud project and reclaim its storage quota?')) return;
+    if (!cloudActionAllowed(true)) return;
+    try {
+      const response = await accountApi('/v1/files/' + encodeURIComponent(file.id), {
+        method: 'DELETE', token: accountToken,
+      });
+      if (response.deleted !== true) throw new Error('Cloud file deletion was not confirmed.');
+      if (remotePreviewFileId === file.id) resetVideo();
+      for (const clip of clips) if (clip.cloudFileId === file.id) {
+        clip.cloudFileId = null;
+        clip.uploadMessage = 'Cloud copy removed. Your device-local original remains available.';
+      }
+      renderClips();
+      await loadCloudMedia(projectId, panel);
+      report('Cloud file removed and quota updated. Device-local originals remain available.');
+    } catch (error) {
+      try {
+        const remote = await accountApi('/v1/projects/' + encodeURIComponent(projectId), {token: accountToken});
+        if (Array.isArray(remote.files) && !remote.files.some((item) => item.id === file.id)) {
+          await loadCloudMedia(projectId, panel);
+          report('Cloud file removal confirmed from the project list. Device-local originals remain available.');
+          return;
+        }
+      } catch (_) { /* Preserve the unknown-outcome message below. */ }
+      report('Cloud removal could not be confirmed. Check this project’s media list before retrying.');
     }
   }
 
@@ -1332,6 +1498,9 @@
   projectConsent?.addEventListener('change', () => {
     if (!projectConsent.checked) {
       for (const clip of clips) if (clip.uploading) clip.uploadXhr?.abort();
+      remoteMediaAbort?.abort();
+      if (remotePreviewUrl) resetVideo();
+      get('cloudProjects')?.querySelectorAll('.cloud-media-panel').forEach((panel) => panel.replaceChildren());
     }
     refreshCloudControls();
     refreshLocalProjects();
@@ -1397,7 +1566,6 @@
       refreshMockControls();
       await refreshLocalProjects();
       renderClips();
-      renderClips();
     } catch (error) {
       if (issuedToken && accountApiOrigin) {
         accountApi('/v1/auth/logout', {method: 'POST', token: issuedToken}).catch(() => {});
@@ -1425,6 +1593,8 @@
     accountSignedIn.hidden = true;
     selectAccountForm('login');
     if (projectConsent) projectConsent.checked = false;
+    remoteMediaAbort?.abort();
+    if (remotePreviewUrl) resetVideo();
     cloudProjectCache = [];
     get('cloudProjects')?.replaceChildren();
     get('mockJobs')?.replaceChildren();
