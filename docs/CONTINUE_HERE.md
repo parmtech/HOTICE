@@ -1,16 +1,36 @@
-# HOTICE — CURRENT HANDOFF (28 OCTOBER 2026)
+# HOTICE — CURRENT HANDOFF (4 NOVEMBER 2026)
 
 **Canonical repo:** https://github.com/parmtech/HOTICE  
 **Feature branch:** feat/smart-avatar-reference-engine  
 **Review PR:** https://github.com/parmtech/HOTICE/pull/32 (draft; not merged into main)  
-**Scope:** Smart Avatar reference planning, consented guided multi-angle 2D capture beta, and model compatibility framework.
+**Scope:** Smart Avatar reference planning, consented guided multi-angle 2D capture beta, encrypted local face-photo vault, and model compatibility framework.
 
 Read the NEW authoritative contracts before proceeding:
 - [AI Model Compatibility](API_MODEL_COMPATIBILITY.md): official provider docs, retired models, strict role/duration/ratio rules, security, and implementation gaps.
-- [Smart Avatar & Reference Engine](SMART_REFERENCE_ENGINE.md): temporary face-photo capture limits, privacy and 3D/reconstruction gaps.
+- [Smart Avatar & Reference Engine](SMART_REFERENCE_ENGINE.md): encrypted face-photo storage, privacy and 3D/reconstruction gaps.
 - [Progress](PROGRESS.md): current phase gates.
 
-**Source implemented:** typed official-source research catalog in lib/src/model_registry.dart, in-app model browser, trust-bounded backend manifest parser, server-only PHP text-envelope builders for two routes, CI tests. No live provider API, account keys, billing, encrypted vault or rendering is connected. Unknown model counts/features fail closed. No consumer-facing promise of permanent 100% compatibility is possible.
+## Current continuation checkpoint
+
+PR #32 head is `600cd147ea5818afb2dc8010bf019cafa8d016d9` on `feat/smart-avatar-reference-engine`; it remains draft and is not merged. The implementation worktree is `feat/avatar-encrypted-reference-vault`, based on that PR head.
+
+- The Android/iOS face-reference vault stores accepted JPG/PNG/WebP images as AES-256-GCM ciphertext in private app storage. OS secure storage holds the device key; authentication binds each blob to vault format v2 and its reference UUID. If data exists but the key is unavailable, reads fail closed and cleanup preserves the ciphertext.
+- Camera capture is encrypted immediately and the raw capture is removed after use. Manual imports preserve the user's source and remove only recognized picker-cache copies. Cache cleanup is best effort.
+- **Important limitation:** avatar/reference index and ownership remain in memory for the current app session. Encrypted image blobs are not yet attached to stable account/project identity, retained through restart as a usable reference pack, backed up, or synced. Opening Avatar Studio after a restart may remove those blobs as orphans. Do not describe the vault as durable Actor persistence or cloud backup.
+- Local verification at this head: 87 Flutter unit/widget tests pass; `flutter analyze --no-fatal-infos` exits successfully with informational lints only; `git diff --check` passes. Exact-head [Flutter/Android run 41704681779](https://github.com/parmtech/HOTICE/actions/runs/41704681779) has passed analysis/tests; APK compilation and emulator smoke were still running at the last check. Exact-head [PHP/backend run 41704681962](https://github.com/parmtech/HOTICE/actions/runs/41704681962) passed both jobs. Recheck before making a final CI claim.
+- The earlier commit `2604b7d` initially failed CI due an unused-variable warning; this was removed in `29fd098`. Latest code includes the subsequent v2 authenticated-metadata change.
+
+### Next implementation sequence
+
+1. Recheck exact-head Actions for `600cd147ea5818afb2dc8010bf019cafa8d016d9`; distinguish APK/emulator success from physical-device camera QA.
+2. Inspect PR #55 (`feat/local-persistence-release`) and Actor-vault PRs #20–#24 before integrating persistent reference records. They are separate open stacks and some are alternatives; preserve their work and select one canonical data/key/archive contract instead of duplicating vaults.
+3. Persist reference metadata and encrypted-media ownership under stable account/project/Actor IDs, implement restart restore and explicit deletion, and ensure orphan cleanup respects restored records. Add migrations and recovery/export behavior before promising durable storage.
+4. Keep every provider capability disabled unless backend-entitlement, role/format, price and lifecycle checks are verified. No real provider or payment call has been made.
+5. Track release gates in [issue #33](https://github.com/parmtech/HOTICE/issues/33). Current decision: **NOT READY TO PUBLISH**; cPanel staging, live providers/billing, account/admin security, media/job production paths, iOS/device QA, accessibility/legal/licensing and rollback/restore evidence remain open.
+
+## Existing capability boundary
+
+Typed official-source research catalog in `lib/src/model_registry.dart`, in-app model browser, trust-bounded backend manifest parser, server-only PHP text-envelope builders for two routes, and CI contract tests are present. There is no connected live provider API, production keys, actual billing or real video rendering. Unknown model counts/features fail closed. No consumer-facing promise of permanent 100% compatibility is possible.
 
 **Attention before release:**
 1. Confirm CI at the latest *head commit*, including Android APK and Android emulator, not a previous green commit.
