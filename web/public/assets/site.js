@@ -109,6 +109,7 @@
     renderActors();
     renderActorAssignments();
     status('sceneStatus', 'Actor saved on this device only.');
+    scheduleLocalProjectAutosave();
   });
 
   get('actorNameInput')?.addEventListener('keydown', (event) => {
@@ -255,6 +256,7 @@
     renderActorAssignments();
     status('sceneStatus', 'Saved in this browser session (' +
       sceneDrafts.length + ' ideas). No video was generated.');
+    scheduleLocalProjectAutosave();
   });
 
   renderActorAssignments();
@@ -458,6 +460,7 @@
     clips.splice(to, 0, clip);
     activeClip = to;
     renderClips();
+    scheduleLocalProjectAutosave();
   }
   function savedTimeline() {
     return clips.map((clip, order) => ({
@@ -745,6 +748,7 @@
     } else if (added) {
       report('Imported clips stay on this device; they are not uploaded.');
     }
+    if (relinked || added) scheduleLocalProjectAutosave();
     event.target.value = '';
   });
   get('addSample')?.addEventListener('click', () => {
@@ -752,6 +756,7 @@
       url:null, start:0, end:0, duration:0, speed:1});
     if (activeClip < 0) selectClip(0);
     renderClips();
+    scheduleLocalProjectAutosave();
   });
   get('applyTrim')?.addEventListener('click', () => {
     const clip = currentClip();
@@ -769,6 +774,7 @@
     video.currentTime = start;
     renderClips();
     report('Preview trim updated. Export is not enabled in this version.');
+    scheduleLocalProjectAutosave();
   });
   get('deleteClip')?.addEventListener('click', () => {
     const clip = currentClip();
@@ -781,12 +787,14 @@
     inspectorEmpty.hidden = false;
     if (clips.length) selectClip(0); else renderClips();
     report('Clip removed.');
+    scheduleLocalProjectAutosave();
   });
   get('clearTimeline')?.addEventListener('click', () => {
     for (const clip of clips) if (clip.url) URL.revokeObjectURL(clip.url);
     clips = []; activeClip = -1; sequence = false;
     resetVideo(); inspector.hidden = true; inspectorEmpty.hidden = false;
     renderClips(); report('Local timeline cleared.');
+    scheduleLocalProjectAutosave();
   });
   get('playSequence')?.addEventListener('click', async () => {
     const first = clips.findIndex((clip) => clip.url && clip.end > clip.start);
@@ -1061,6 +1069,11 @@
   let selectedProjectId = null;
   let localProjectCache = [];
   let cloudProjectCache = [];
+  let localProjectAutosaveTimer = 0;
+  let localProjectAutosaveInFlight = null;
+  let localProjectAutosaveAgain = false;
+  let localProjectEditRevision = 0;
+  let localProjectDirty = false;
   let mockGenerationEnabled = false;
   let currentMockQuote = null;
 
@@ -1311,10 +1324,18 @@
   }
 
   async function openLocalProject(id) {
+    const previousProjectId = selectedProjectId;
     try {
+      if (localProjectAutosaveTimer) {
+        clearTimeout(localProjectAutosaveTimer);
+        localProjectAutosaveTimer = 0;
+      }
+      if (selectedProjectId && await persistLocalProjectAutosave() !== true) return;
+      selectedProjectId = null;
       const project = await projectStore('readonly', 'get', id);
       if (!project) throw new Error('Project not found on this device.');
       selectedProjectId = project.id;
+      localProjectDirty = false;
       get('projectTitle').value = project.title;
       const document = safeProjectDocument(project.document);
       sceneDrafts = editorScenes(document);
@@ -1327,20 +1348,102 @@
         get('scenePrompt').value = sceneDrafts[0].prompt;
         if (Object.hasOwn(modelLimits, sceneDrafts[0].model)) get('sceneModel').value = sceneDrafts[0].model;
       }
-      projectStatus('Opened locally. Changes remain on this device until you save again.');
+      if (document.composerDraft && typeof document.composerDraft.prompt === 'string' &&
+          document.composerDraft.prompt.length <= 30000) {
+        get('scenePrompt').value = document.composerDraft.prompt;
+        if (Object.hasOwn(modelLimits, document.composerDraft.model)) {
+          get('sceneModel').value = document.composerDraft.model;
+        }
+      }
+      projectStatus('Opened locally. Changes to this saved project are saved on this device automatically.');
     } catch (error) {
+      selectedProjectId = previousProjectId;
       projectStatus(error.message || 'Could not open this local project.');
     }
   }
 
+  function scheduleLocalProjectAutosave() {
+    if (!selectedProjectId) return;
+    localProjectEditRevision++;
+    localProjectDirty = true;
+    if (localProjectAutosaveTimer) clearTimeout(localProjectAutosaveTimer);
+    projectStatus('Unsaved changes · saving on this device…');
+    localProjectAutosaveTimer = setTimeout(() => {
+      localProjectAutosaveTimer = 0;
+      void persistLocalProjectAutosave();
+    }, 650);
+  }
+
+  async function persistLocalProjectAutosave() {
+    if (!localProjectDirty && !localProjectAutosaveInFlight) return true;
+    if (localProjectAutosaveInFlight) {
+      localProjectAutosaveAgain = true;
+      return localProjectAutosaveInFlight;
+    }
+    localProjectAutosaveInFlight = (async () => {
+      try {
+        do {
+          localProjectAutosaveAgain = false;
+          const id = selectedProjectId;
+          const revision = localProjectEditRevision;
+          if (!id) return false;
+          const title = get('projectTitle').value.trim();
+          if (!title || title.length > 120) {
+            projectStatus('Enter a project name of 1–120 characters to save changes automatically.');
+            return false;
+          }
+          const existing = await projectStore('readonly', 'get', id);
+          if (!existing) {
+            projectStatus('This local project is no longer available. Your current edits remain in this tab.');
+            return false;
+          }
+          const document = safeProjectDocument({
+            ...(existing.document || {}), version: 3, scenes: sceneDrafts, actors: actorNames,
+            timeline: savedTimeline(),
+            composerDraft: {prompt: get('scenePrompt').value, model: get('sceneModel').value},
+          });
+          if (!document.scenes.length) {
+            projectStatus('Save a scene idea before automatic project save can continue.');
+            return false;
+          }
+          await projectStore('readwrite', 'put', {
+            ...existing, title, document, updatedAt: new Date().toISOString(),
+          });
+          if (id !== selectedProjectId) return false;
+          await refreshLocalProjects();
+          if (revision === localProjectEditRevision) {
+            localProjectDirty = false;
+            projectStatus('All changes saved on this device. Cloud sync still requires your action.');
+          } else {
+            localProjectAutosaveAgain = true;
+          }
+        } while (localProjectAutosaveAgain);
+        return true;
+      } catch (_) {
+        projectStatus('Changes remain in this tab but could not be saved locally. Select Save project to retry.');
+        return false;
+      }
+    })().finally(() => {
+      localProjectAutosaveInFlight = null;
+      if (localProjectAutosaveAgain && selectedProjectId) void persistLocalProjectAutosave();
+    });
+    return localProjectAutosaveInFlight;
+  }
+
   async function saveLocalProject() {
+    if (localProjectAutosaveTimer) {
+      clearTimeout(localProjectAutosaveTimer);
+      localProjectAutosaveTimer = 0;
+    }
+    if (localProjectAutosaveInFlight) await localProjectAutosaveInFlight;
     const title = get('projectTitle').value.trim();
     if (!title || title.length > 120) return projectStatus('Enter a project name of 1–120 characters.');
     try {
       const existing = selectedProjectId ? await projectStore('readonly', 'get', selectedProjectId) : null;
       const document = safeProjectDocument({
-        ...(existing?.document || {}), version: 2, scenes: sceneDrafts, actors: actorNames,
+        ...(existing?.document || {}), version: 3, scenes: sceneDrafts, actors: actorNames,
         timeline: savedTimeline(),
+        composerDraft: {prompt: get('scenePrompt').value, model: get('sceneModel').value},
       });
       if (!document.scenes.length) return projectStatus('Save at least one scene idea before saving this project.');
       const project = {
@@ -1349,8 +1452,9 @@
       };
       await projectStore('readwrite', 'put', project);
       selectedProjectId = project.id;
+      localProjectDirty = false;
       await refreshLocalProjects();
-      projectStatus('Project saved on this device. Cloud sync remains off until you consent and choose Sync.');
+      projectStatus('Project saved on this device. Cloud sync still requires your separate consent and action.');
     } catch (error) {
       projectStatus(error.message || 'Could not save this project on this device.');
     }
@@ -1360,8 +1464,18 @@
     const project = localProjectCache.find((item) => item.id === id);
     if (!project || !window.confirm('Delete “' + project.title + '” from this device? Its cloud copy will not be deleted.')) return;
     try {
+      if (selectedProjectId === id) {
+        if (localProjectAutosaveTimer) {
+          clearTimeout(localProjectAutosaveTimer);
+          localProjectAutosaveTimer = 0;
+        }
+        if (await persistLocalProjectAutosave() !== true) return;
+      }
       await projectStore('readwrite', 'delete', id);
-      if (selectedProjectId === id) selectedProjectId = null;
+      if (selectedProjectId === id) {
+        selectedProjectId = null;
+        localProjectDirty = false;
+      }
       await refreshLocalProjects();
       projectStatus('Local project deleted. Any cloud copy remains in your HOTICE account.');
     } catch (_) {
@@ -1392,6 +1506,15 @@
 
   async function syncLocalProject(id, {asNewCopy = false} = {}) {
     if (!cloudActionAllowed(true)) return cloudProjectStatus('Sign in, confirm consent and check that cloud access is active.');
+    if (selectedProjectId === id) {
+      if (localProjectAutosaveTimer) {
+        clearTimeout(localProjectAutosaveTimer);
+        localProjectAutosaveTimer = 0;
+      }
+      if (await persistLocalProjectAutosave() !== true) {
+        return cloudProjectStatus('Local changes could not be saved yet. Your project remains on this device; retry Save before syncing.');
+      }
+    }
     let project = localProjectCache.find((item) => item.id === id);
     if (!project) return cloudProjectStatus('Save this project on the device before syncing it.');
     try {
@@ -1417,17 +1540,19 @@
       if (!Number.isInteger(response.revision) || typeof response.id !== 'string') {
         throw new Error('The HOTICE server returned an invalid project revision.');
       }
-      project.cloudId = cloudId;
-      project.cloudRevision = response.revision;
-      project.cloudConflict = false;
-      project.updatedAt = new Date().toISOString();
-      await projectStore('readwrite', 'put', project);
+      const latest = await projectStore('readonly', 'get', project.id) || project;
+      latest.cloudId = cloudId;
+      latest.cloudRevision = response.revision;
+      latest.cloudConflict = false;
+      latest.updatedAt = new Date().toISOString();
+      await projectStore('readwrite', 'put', latest);
       await refreshLocalProjects();
       cloudProjectStatus('Cloud copy saved at revision ' + response.revision + '. Your local copy remains available on this device.');
     } catch (error) {
       if (error.status === 409) {
-        project.cloudConflict = true;
-        await projectStore('readwrite', 'put', project).catch(() => {});
+        const latest = await projectStore('readonly', 'get', project.id).catch(() => null) || project;
+        latest.cloudConflict = true;
+        await projectStore('readwrite', 'put', latest).catch(() => {});
         await refreshLocalProjects();
         cloudProjectStatus('The cloud copy changed elsewhere. Your local project was kept; use “Upload as separate cloud copy” to preserve both versions.');
       } else if (error.status === 403) {
@@ -1499,6 +1624,9 @@
   }
 
   get('saveLocalProject')?.addEventListener('click', saveLocalProject);
+  get('projectTitle')?.addEventListener('input', scheduleLocalProjectAutosave);
+  get('scenePrompt')?.addEventListener('input', scheduleLocalProjectAutosave);
+  get('sceneModel')?.addEventListener('change', scheduleLocalProjectAutosave);
   projectConsent?.addEventListener('change', () => {
     refreshCloudControls();
     refreshLocalProjects();

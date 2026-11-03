@@ -353,7 +353,18 @@ async function main() {
       {name: 'hotice-synthetic-first.webm', mimeType: 'video/webm', buffer: relinkFixture},
       {name: 'hotice-synthetic-second.webm', mimeType: 'video/webm', buffer: relinkFixture},
     ]);
-    await page.waitForFunction(() => document.querySelector('#previewVideo')?.readyState >= 1);
+    try {
+      await page.waitForFunction(() => document.querySelector('#previewVideo')?.readyState >= 1,
+        null, {timeout: 8000});
+    } catch (error) {
+      throw new Error(error.message + ' · relink diagnostics: ' + JSON.stringify(await page.evaluate(() => ({
+        status: document.querySelector('#editorStatus')?.textContent,
+        projectStatus: document.querySelector('#projectStatus')?.textContent,
+        readyState: document.querySelector('#previewVideo')?.readyState,
+        currentSrc: document.querySelector('#previewVideo')?.currentSrc,
+        trimStart: document.querySelector('#trimStart')?.value,
+      }))));
+    }
     assert.equal(await page.locator('#clipTimeline [role="listitem"]').count(), 2,
       'Re-importing original filenames must reconnect clips instead of duplicating them.');
     assert.equal(await page.locator('#exportVideo').isDisabled(), false,
@@ -362,6 +373,47 @@ async function main() {
     assert.equal(await page.locator('#trimEnd').inputValue(), '1.8');
     assert.equal(await page.locator('#clipSpeed').inputValue(), '1.5');
     assert.match(await page.locator('#editorStatus').textContent(), /2 saved timeline clips were relinked/);
+    await page.locator('#trimStart').fill('0.3');
+    await page.locator('#trimEnd').fill('1.7');
+    await page.locator('#clipSpeed').selectOption('2');
+    await page.locator('#applyTrim').click();
+    await page.locator('#scenePrompt').fill('Autosaved browser draft survives a reload.');
+    try {
+      await page.waitForFunction(() => document.querySelector('#projectStatus')?.textContent
+        .includes('All changes saved on this device'), null, {timeout: 8000});
+    } catch (error) {
+      const autosaveStatus = await page.locator('#projectStatus').textContent();
+      throw new Error(error.message + ' · autosave status: ' + autosaveStatus);
+    }
+    await page.reload({waitUntil: 'networkidle'});
+    await page.locator('#localProjects .project-card').getByRole('button', {name: 'Open'}).click();
+    try {
+      await page.waitForFunction(() => document.querySelector('#projectStatus')?.textContent
+        .includes('Opened locally'), null, {timeout: 8000});
+    } catch (error) {
+      throw new Error(error.message + ' · reopen status: ' +
+        await page.locator('#projectStatus').textContent());
+    }
+    assert.equal(await page.locator('#scenePrompt').inputValue(),
+      'Autosaved browser draft survives a reload.');
+    const autosavedEdits = await page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open('hotice.browser-projects.v1', 1);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const project = await new Promise((resolve, reject) => {
+        const request = db.transaction('projects').objectStore('projects').getAll();
+        request.onsuccess = () => resolve(request.result[0]);
+        request.onerror = () => reject(request.error);
+      });
+      db.close();
+      return {timeline: project.document.timeline[0], draft: project.document.composerDraft};
+    });
+    assert.deepEqual(autosavedEdits.draft,
+      {prompt: 'Autosaved browser draft survives a reload.', model: 'storyboard_demo'});
+    assert.deepEqual({start: autosavedEdits.timeline.start, end: autosavedEdits.timeline.end,
+      speed: autosavedEdits.timeline.speed}, {start: 0.3, end: 1.7, speed: 2});
 
     // Seed a local-only media field and prove it is rejected before network transfer.
     await updateLocalDocument(page, 'add-media');
@@ -460,7 +512,8 @@ async function main() {
       await secondPage.locator('#localProjects .project-card').getByRole('button', {name: 'Open'}).waitFor();
       await secondPage.locator('#localProjects .project-card').getByRole('button', {name: 'Open'}).click();
       await secondPage.waitForFunction(() => document.querySelector('#projectStatus').textContent.includes('Opened locally'));
-      assert.match(await secondPage.locator('#scenePrompt').inputValue(), /optimistic-lock conflict|red paper kite/);
+      assert.match(await secondPage.locator('#scenePrompt').inputValue(),
+        /optimistic-lock conflict|red paper kite|Autosaved browser draft/);
     } finally {
       await secondContext.close();
     }
@@ -472,6 +525,7 @@ async function main() {
         'canceled a replacement recording without losing the prior exported file',
         'local project save, reload and reopen',
         'relinked imported clips by filename after project restore while preserving trim and speed',
+        'automatically saved composer draft and timeline edits locally across reload',
         'media data rejected before upload',
         'authenticated mock generation quote, explicit submit, idempotency and status refresh',
         'cloud controls disabled until login and consent',
