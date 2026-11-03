@@ -570,7 +570,17 @@ Repository references: [release issue #33](https://github.com/parmtech/HOTICE/is
 - PR #79 (`feat/native-archive-save-health`) adds visible saved/saving/failure
   status and retry for the latest encrypted device snapshot. Local suite passed
   74 tests; analyzer zero errors (45 informational lints); diff check passed.
-  Exact-head run 41685598266 is queued.
-- Issue #33 has progress comments for both slices. Next: refresh PR #78 emulator
-  and PR #79 exact-head CI, then continue the next blueprint gap. Keep release
+  In exact-head run 41685598266, source/dependency inventory, static browser
+  dry run and Flutter analysis/tests passed; Android APK and emulator smoke are
+  still active.
+- PR #70 handoff branch head `1edd1a000873ae94e5d8da87457e91b548582695`
+  has exact-head run 41685739669 in progress; Flutter setup is active.
+- PR #32 (`feat/smart-avatar-reference-engine`) remains open and draft at
+  `3eac894445bac527dd53f8c0ebd7f77b75b55bf0`; its exact-head Flutter run
+  40735266061 and PHP/backend run 40735266040 both passed. This is evidence for
+  the implemented research catalog and guided 2D reference path only. Physical
+  device QA, live provider lifecycle, secure media upload, billing and true 3D
+  reconstruction are still not established by those checks.
+- Issue #33 has progress comments for #78 and #79. Continue the next blueprint
+  gap after the active client CI jobs finish. Keep release
   NOT READY TO PUBLISH until all release gates pass.
