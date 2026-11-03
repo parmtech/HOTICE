@@ -29,7 +29,8 @@ final readonly class ProviderModelCapabilities
                 }
             }
         }
-        if (($attachmentMimes === []) !== ($maxAttachments === 0 && $maxTotalAttachmentBytes === 0)) {
+        if (($attachmentMimes === [] && ($maxAttachments !== 0 || $maxTotalAttachmentBytes !== 0)) ||
+            ($attachmentMimes !== [] && ($maxAttachments === 0 || $maxTotalAttachmentBytes === 0))) {
             throw new \InvalidArgumentException('Attachment capabilities and limits must agree.');
         }
     }
