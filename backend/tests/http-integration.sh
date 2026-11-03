@@ -85,6 +85,25 @@ scan_status=$?
 set -e
 test "$scan_status" -eq 1
 echo "$scan_result" | jq -e '.scannedClean == 1 and .blocked == 1 and .retryableFailures == 1' >/dev/null
+# Scanner errors stay quarantined and must be deferred, so a broken upload
+# cannot consume the same small cron batch indefinitely.
+php -r '
+require_once "backend/src/App.php";
+$db = (new Hotice\\App(require "backend/config.php"))->database();
+$q = $db->prepare("SELECT TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),next_scan_at) FROM cloud_files WHERE id=? AND scan_status=\x27pending\x27");
+$q->execute([$argv[1]]);
+$seconds = $q->fetchColumn();
+if ($seconds === false || (int)$seconds < 240 || (int)$seconds > 300) exit(1);
+' "$scanner_error_file"
+# Re-queue a *different* known clean fixture, then verify that it can be
+# scanned while the failed file is still deferred.
+php -r '
+require_once "backend/src/App.php";
+$db = (new Hotice\\App(require "backend/config.php"))->database();
+$db->prepare("UPDATE cloud_files SET scan_status=\x27pending\x27,next_scan_at=UTC_TIMESTAMP() WHERE id=?")->execute([$argv[1]]);
+' "$file"
+rescanned=$(php backend/bin/scan-media.php 20)
+echo "$rescanned" | jq -e '.scannedClean == 1 and .blocked == 0 and .retryableFailures == 0' >/dev/null
 curl -fsS -H "$AUTH" "$BASE/v1/projects/$id" | jq -e --arg clean "$file" --arg infected "$infected_file" --arg retry "$scanner_error_file" '
   .files as $files |
   ($files | any(.id == $clean and .scan_status == "clean")) and
