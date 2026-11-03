@@ -266,9 +266,74 @@
   const emptyStage = get('stageEmpty');
   const inspector = get('inspectorFields');
   const inspectorEmpty = get('inspectorEmpty');
+  const exportButton = get('exportVideo');
+  const exportResolution = get('exportResolution');
+  const exportDownload = get('exportDownload');
+  const exportNote = get('exportNote');
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  const exportSupported = typeof window.MediaRecorder === 'function' &&
+    typeof HTMLCanvasElement.prototype.captureStream === 'function' &&
+    typeof AudioContextClass === 'function';
+  const exportTypes = ['video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
+    'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  const exportMimeType = exportSupported
+    ? exportTypes.find((type) => MediaRecorder.isTypeSupported(type)) || '' : '';
+  let exportState = null;
+  let exportPreparation = false;
+  let audioContext = null;
+  let audioSource = null;
+  let audioDestination = null;
+  let exportUrl = null;
+  let drawFrameId = 0;
+  let metadataTimer = 0;
+  let metadataWait = null;
+  let preparingCanvasStream = null;
+
+  function playableClips() {
+    return clips.filter((clip) => clip.url && clip.end > clip.start && clip.speed > 0);
+  }
+  function clearExportResult() {
+    if (exportUrl) URL.revokeObjectURL(exportUrl);
+    exportUrl = null;
+    if (exportDownload) {
+      exportDownload.hidden = true;
+      exportDownload.removeAttribute('href');
+      exportDownload.removeAttribute('download');
+    }
+  }
+  function refreshExportControl() {
+    if (!exportButton) return;
+    if (exportState || exportPreparation) {
+      exportButton.disabled = false;
+      exportButton.setAttribute('aria-disabled', 'false');
+      exportButton.textContent = 'Cancel export';
+      exportButton.title = 'Cancel this local export; your source clips will stay unchanged.';
+      return;
+    }
+    const ready = !!exportMimeType && playableClips().length > 0;
+    exportButton.disabled = !ready;
+    exportButton.setAttribute('aria-disabled', String(!ready));
+    exportButton.textContent = 'Export video';
+    exportButton.title = !exportMimeType
+      ? 'This browser does not report a supported local video recording format.'
+      : ready ? 'Create a video file locally from the playable timeline clips.'
+        : 'Import a playable clip to enable local export.';
+    if (exportNote && !exportMimeType) {
+      exportNote.textContent = 'Local export is unavailable because this browser does not support the required recording and audio features.';
+    }
+  }
+
+  refreshExportControl();
   function currentClip() { return clips[activeClip] || null; }
   function resetVideo() {
     if (!video) return;
+    if (metadataWait) {
+      video.removeEventListener('loadedmetadata', metadataWait.listener);
+      video.removeEventListener('durationchange', metadataWait.listener);
+      metadataWait = null;
+    }
+    clearTimeout(metadataTimer);
+    metadataTimer = 0;
     video.pause();
     video.removeAttribute('src');
     video.load();
@@ -288,13 +353,41 @@
       get('trimStart').value = clip.start.toFixed(1);
       get('trimEnd').value = clip.end.toFixed(1);
       get('clipSpeed').value = String(clip.speed);
-      video.src = clip.url;
       video.classList.add('has-video');
       emptyStage.hidden = true;
-      video.addEventListener('loadedmetadata', function seekOnce() {
-        video.removeEventListener('loadedmetadata', seekOnce);
-        if (clips[activeClip] === clip) video.currentTime = clip.start;
-      });
+      const applyLoadedMetadata = () => {
+        if (video.currentSrc !== clip.url || video.readyState < HTMLMediaElement.HAVE_METADATA ||
+            !Number.isFinite(video.duration) || video.duration <= 0) return;
+        video.removeEventListener('loadedmetadata', applyLoadedMetadata);
+        video.removeEventListener('durationchange', applyLoadedMetadata);
+        if (metadataWait?.listener === applyLoadedMetadata) metadataWait = null;
+        clearTimeout(metadataTimer);
+        metadataTimer = 0;
+        if (clips[activeClip] === clip) {
+          clip.duration = Number.isFinite(video.duration) ? video.duration : 0;
+          if (clip.end <= clip.start || clip.end > clip.duration) clip.end = clip.duration;
+          get('trimStart').value = clip.start.toFixed(1);
+          get('trimEnd').value = clip.end.toFixed(1);
+          video.playbackRate = clip.speed;
+          video.currentTime = clip.start;
+          renderClips();
+        }
+      };
+      metadataWait = {clip, listener: applyLoadedMetadata};
+      video.addEventListener('loadedmetadata', applyLoadedMetadata);
+      video.addEventListener('durationchange', applyLoadedMetadata);
+      video.src = clip.url;
+      if (video.readyState >= HTMLMediaElement.HAVE_METADATA && video.currentSrc === clip.url &&
+          Number.isFinite(video.duration) && video.duration > 0) {
+        applyLoadedMetadata();
+      }
+      if (!clip.duration) {
+        metadataTimer = setTimeout(() => {
+          if (clips[activeClip] === clip && !clip.duration) {
+            report('This file has no readable duration in this browser. Keep it safely; re-export as a standard MP4 or WebM file to trim or export it here.');
+          }
+        }, 8000);
+      }
     } else {
       inspectorEmpty.hidden = false;
       inspectorEmpty.textContent = 'This is a scene placeholder; generate or import a video later.';
@@ -335,6 +428,11 @@
       later.disabled = index === clips.length - 1;
       later.setAttribute('aria-label', 'Move clip later');
       later.addEventListener('click', () => shift(index, 1));
+      if (exportState) {
+        open.disabled = true;
+        earlier.disabled = true;
+        later.disabled = true;
+      }
       controls.append(open, earlier, later);
       box.append(controls);
       list.append(box);
@@ -350,6 +448,7 @@
         neighbor?.querySelector('[data-clip-action="select"]')?.focus();
       }
     }
+    refreshExportControl();
   }
   function shift(from, distance) {
     const to = from + distance;
@@ -360,6 +459,216 @@
     renderClips();
   }
   const report = (message) => status('editorStatus', message);
+  function waitForClipMetadata(clip) {
+    const isReady = () => video.readyState >= HTMLMediaElement.HAVE_METADATA &&
+      video.currentSrc === clip.url && Number.isFinite(video.duration) && video.duration > 0 &&
+      video.videoWidth > 0 && video.videoHeight > 0;
+    if (isReady()) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      let timer;
+      const cleanup = () => {
+        clearTimeout(timer);
+        video.removeEventListener('loadedmetadata', onLoaded);
+        video.removeEventListener('durationchange', onLoaded);
+        video.removeEventListener('error', onError);
+      };
+      const onLoaded = () => {
+        if (!isReady()) return;
+        cleanup();
+        resolve();
+      };
+      const onError = () => {
+        if (video.currentSrc !== clip.url) return;
+        cleanup();
+        reject(new Error('The browser could not read one of the selected clips.'));
+      };
+      video.addEventListener('loadedmetadata', onLoaded);
+      video.addEventListener('durationchange', onLoaded);
+      video.addEventListener('error', onError);
+      timer = setTimeout(() => {
+        cleanup();
+        reject(new Error('A selected clip took too long to load.'));
+      }, 15000);
+    });
+  }
+  function drawExportFrame(canvas, context) {
+    if (!exportState) return;
+    context.fillStyle = '#000';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth && video.videoHeight) {
+      const scale = Math.min(canvas.width / video.videoWidth, canvas.height / video.videoHeight);
+      const width = Math.round(video.videoWidth * scale);
+      const height = Math.round(video.videoHeight * scale);
+      context.drawImage(video, Math.round((canvas.width - width) / 2),
+        Math.round((canvas.height - height) / 2), width, height);
+    }
+    drawFrameId = requestAnimationFrame(() => drawExportFrame(canvas, context));
+  }
+  function setExportLocked(locked) {
+    for (const id of ['clipsInput', 'addSample', 'clearTimeline', 'applyTrim',
+      'deleteClip', 'playSequence', 'exportResolution']) {
+      const control = get(id);
+      if (control) control.disabled = locked;
+    }
+    if (list) list.setAttribute('aria-busy', String(locked));
+  }
+  function stopExport({cancelled = false, error = null} = {}) {
+    const state = exportState;
+    if (!state) return;
+    state.cancelled = cancelled;
+    state.error = error;
+    if (cancelled || error) {
+      sequence = false;
+      video.pause();
+    }
+    if (state.recorder.state !== 'inactive') {
+      try { state.recorder.stop(); } catch (stopError) {
+        state.error ||= stopError;
+        finalizeExport(state);
+      }
+    } else {
+      finalizeExport(state);
+    }
+  }
+  function finalizeExport(state) {
+    if (state.finalized) return;
+    state.finalized = true;
+    if (exportState === state) exportState = null;
+    cancelAnimationFrame(drawFrameId);
+    drawFrameId = 0;
+    for (const track of state.canvasStream.getTracks()) track.stop();
+    setExportLocked(false);
+    refreshExportControl();
+    if (state.cancelled) {
+      report('Export canceled. Your original clips are unchanged.');
+      return;
+    }
+    if (state.error) {
+      report('Export could not finish. Your clips are unchanged; try a shorter sequence or lower export size.');
+      return;
+    }
+    const blob = new Blob(state.chunks, {type: state.recorder.mimeType || exportMimeType});
+    if (!blob.size) {
+      report('The browser produced an empty video file. Try another supported browser or export size.');
+      return;
+    }
+    clearExportResult();
+    exportUrl = URL.createObjectURL(blob);
+    const extension = blob.type.toLowerCase().includes('mp4') ? 'mp4' : 'webm';
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    exportDownload.href = exportUrl;
+    exportDownload.download = 'hotice-video-' + stamp + '.' + extension;
+    exportDownload.textContent = 'Download exported video (' + extension.toUpperCase() + ')';
+    exportDownload.hidden = false;
+    report('Export ready (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB). The video is on this device and has not been uploaded.');
+    exportDownload.focus();
+  }
+  function startLocalExport() {
+    if (exportState) {
+      stopExport({cancelled: true});
+      return;
+    }
+    if (exportPreparation) {
+      exportPreparation = false;
+      setExportLocked(false);
+      sequence = false;
+      video.pause();
+      refreshExportControl();
+      report('Export canceled before recording started. Your original clips are unchanged.');
+      return;
+    }
+    const timeline = playableClips();
+    const totalSeconds = timeline.reduce((sum, clip) => sum + (clip.end - clip.start) / clip.speed, 0);
+    if (!timeline.length) return report('Import at least one playable video clip before exporting.');
+    if (totalSeconds > 300) return report('This browser export is limited to five minutes per file. Split the timeline into shorter exports.');
+    if (!exportMimeType) return report('Local video export is not supported by this browser. Your clips remain on this device.');
+    const firstIndex = clips.indexOf(timeline[0]);
+    const firstClip = timeline[0];
+    exportPreparation = true;
+    setExportLocked(true);
+    refreshExportControl();
+    selectClip(firstIndex);
+    if (!audioContext) {
+      audioContext = new AudioContextClass();
+      audioSource = audioContext.createMediaElementSource(video);
+      audioDestination = audioContext.createMediaStreamDestination();
+      audioSource.connect(audioContext.destination);
+      audioSource.connect(audioDestination);
+    }
+    const resumeAudio = audioContext.resume();
+    waitForClipMetadata(firstClip).then(async () => {
+      if (!exportButton || exportState || !exportPreparation) return;
+      await resumeAudio;
+      if (!exportPreparation || exportState) return;
+      const resolution = Number(exportResolution.value);
+      const aspect = video.videoWidth / video.videoHeight;
+      const canvas = document.createElement('canvas');
+      const maxEdge = resolution === 1080 ? 1920 : 1280;
+      if (aspect >= 1) {
+        canvas.width = Math.min(maxEdge, Math.round(resolution * aspect / 2) * 2);
+        canvas.height = Math.round(canvas.width / aspect / 2) * 2;
+      } else {
+        canvas.width = resolution;
+        canvas.height = Math.min(maxEdge, Math.round(resolution / aspect / 2) * 2);
+        canvas.width = Math.round(canvas.height * aspect / 2) * 2;
+      }
+      const context = canvas.getContext('2d', {alpha: false});
+      if (!context) throw new Error('Canvas export is unavailable.');
+      const canvasStream = canvas.captureStream(30);
+      preparingCanvasStream = canvasStream;
+      const stream = new MediaStream(canvasStream.getVideoTracks());
+      for (const track of audioDestination.stream.getAudioTracks()) stream.addTrack(track);
+      const recorder = new MediaRecorder(stream, {mimeType: exportMimeType,
+        videoBitsPerSecond: resolution === 1080 ? 6500000 : 3500000,
+        audioBitsPerSecond: 128000});
+      const state = {recorder, canvasStream, chunks: [], cancelled: false,
+        error: null, finalized: false, nextProgress: 10, timeline, totalSeconds};
+      preparingCanvasStream = null;
+      exportPreparation = false;
+      exportState = state;
+      recorder.addEventListener('dataavailable', (event) => {
+        if (event.data?.size) state.chunks.push(event.data);
+      });
+      recorder.addEventListener('error', (event) => {
+        state.error = event.error || new Error('MediaRecorder failed.');
+        if (recorder.state !== 'inactive') {
+          try { recorder.stop(); } catch (_) { finalizeExport(state); }
+        }
+      }, {once: true});
+      recorder.addEventListener('stop', () => finalizeExport(state), {once: true});
+      setExportLocked(true);
+      refreshExportControl();
+      drawExportFrame(canvas, context);
+      recorder.start(1000);
+      sequence = true;
+      video.currentTime = firstClip.start;
+      video.playbackRate = firstClip.speed;
+      try {
+        await video.play();
+        report('Exporting locally · 0% · keep this tab open until the video is ready.');
+      } catch (error) {
+        stopExport({error});
+      }
+    }).catch((error) => {
+      if (exportState) {
+        stopExport({error});
+        return;
+      }
+      if (!exportPreparation) return;
+      if (preparingCanvasStream) {
+        for (const track of preparingCanvasStream.getTracks()) track.stop();
+        preparingCanvasStream = null;
+      }
+      exportPreparation = false;
+      setExportLocked(false);
+      refreshExportControl();
+      report(error.message || 'A clip could not be prepared for local export.');
+    });
+  }
+
+  exportButton?.addEventListener('click', startLocalExport);
   get('clipsInput')?.addEventListener('change', (event) => {
     const files = [...event.target.files];
     for (const file of files) {
@@ -375,23 +684,10 @@
       const clip = {id:++serial, name:file.name, url,
         start:0, end:0, duration:0, speed:1};
       clips.push(clip);
-      // Probe duration without uploading the video anywhere.
-      const probe = document.createElement('video');
-      probe.preload = 'metadata';
-      probe.src = url;
-      probe.onloadedmetadata = () => {
-        if (!clips.includes(clip)) return;
-        clip.duration = Number.isFinite(probe.duration) ? probe.duration : 0;
-        clip.end = clip.duration;
-        if (currentClip() === clip) get('trimEnd').value = String(clip.end);
-        renderClips();
-        probe.removeAttribute('src');
-        probe.load();
-      };
-      probe.onerror = () => report('This video codec could not be read in the browser.');
     }
     if (clips.length && activeClip === -1) selectClip(0);
     renderClips();
+    if (clips.length) report('Imported clips stay on this device; they are not uploaded.');
     event.target.value = '';
   });
   get('addSample')?.addEventListener('click', () => {
@@ -451,6 +747,19 @@
   video?.addEventListener('timeupdate', async () => {
     const clip = currentClip();
     if (!clip || !clip.url || !clip.end) return;
+    if (exportState) {
+      const timelinePosition = exportState.timeline.indexOf(clip);
+      const completedSeconds = exportState.timeline.slice(0, Math.max(0, timelinePosition))
+        .reduce((sum, item) => sum + (item.end - item.start) / item.speed, 0);
+      const currentSeconds = Math.max(0, Math.min(clip.end - clip.start,
+        video.currentTime - clip.start)) / clip.speed;
+      const percent = Math.min(99, Math.floor((completedSeconds + currentSeconds) /
+        exportState.totalSeconds * 100));
+      if (percent >= exportState.nextProgress) {
+        report('Exporting locally · ' + percent + '% · keep this tab open until the video is ready.');
+        exportState.nextProgress = Math.floor(percent / 10) * 10 + 10;
+      }
+    }
     if (video.currentTime < clip.end - 0.05) return;
     video.pause();
     if (!sequence) return;
@@ -458,6 +767,11 @@
       index > activeClip && candidate.url && candidate.end > candidate.start);
     if (next < 0) {
       sequence = false;
+      if (exportState) {
+        report('Finalizing the exported video on this device…');
+        stopExport();
+        return;
+      }
       report('Sequence preview finished.');
       return;
     }

@@ -58,6 +58,11 @@ def main():
                        "loadCloudProjects", "cloudProjects", "cloudProjectStatus"):
         assert 'id="' + element_id + '"' in html, "Missing local/cloud project control: " + element_id
     assert 'id="clipTimeline" role="list"' in html, "Timeline must expose its list semantics"
+    for element_id in ("exportResolution", "exportVideo", "exportDownload", "exportNote"):
+        assert 'id="' + element_id + '"' in html, "Missing local video export control: " + element_id
+    assert "Local export stays on this device" in html, "Export must explain that media is not uploaded"
+    assert (ROOT / "tools" / "fixtures" / "hotice-synthetic-source.webm").is_file(), \
+        "Browser export integration needs its checked-in local synthetic media fixture"
     assert 'type="checkbox"' in html and "I agree to sync the saved project I choose" in html
 
     raw = json.loads((PUBLIC / "assets" / "inspiration.json").read_text(encoding="utf-8"))
@@ -101,6 +106,10 @@ def main():
     assert "box.setAttribute('role', 'listitem')" in script
     assert "open.setAttribute('aria-pressed', String(activeClip === index))" in script
     assert "focusedControl?.dataset.clipAction" in script, "Timeline updates must restore focused controls"
+    assert "new MediaRecorder(stream" in script and "canvas.captureStream(30)" in script, \
+        "Local video export must record a rendered timeline without a server upload"
+    assert "totalSeconds > 300" in script, "Browser export needs a bounded duration"
+    assert "Export canceled. Your original clips are unchanged." in script
     assert "credentials: 'omit'" in script and "redirect: 'error'" in script
     assert "parsed.protocol === 'http:' && localPage" in script, "Insecure API origins must be limited to local development"
     assert "localStorage.setItem('hotice.accessToken'" not in script

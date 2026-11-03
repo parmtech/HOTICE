@@ -1,0 +1,6 @@
+.editor-bottom select{min-height:42px;border:1px solid #475273;border-radius:9px;background:#131e33;color:#fff;padding:8px 11px}
+.editor-bottom label{font-size:12px;color:#c5ccea}
+#exportDownload[hidden]{display:none}
+#exportDownload{min-height:42px;padding:10px 13px;font-size:13px}
+.editor-bottom [aria-busy="true"]{cursor:progress}
+@media(max-width:520px){.editor-bottom{align-items:stretch}.editor-bottom label{align-self:center}.editor-bottom select,.editor-bottom button,.editor-bottom a{flex:1 1 auto}.editor-bottom #exportNote{flex-basis:100%;line-height:1.5}}
