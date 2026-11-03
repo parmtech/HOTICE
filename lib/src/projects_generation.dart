@@ -5,6 +5,21 @@ import 'avatar_identity.dart';
 import 'design.dart';
 import 'dialogs.dart';
 
+const _promptStarters = <(String, String)>[
+  (
+    'Neon rain',
+    'A lone jazz musician plays beneath a glowing blue awning on a rain-soaked city street, slow camera push-in, reflections shimmer across the pavement, cinematic night lighting.',
+  ),
+  (
+    'First light',
+    'A small sailboat glides through a quiet alpine lake at sunrise, mist parts around the bow, wide aerial establishing shot that gently descends toward the water, warm natural light.',
+  ),
+  (
+    'The reunion',
+    'Two old friends recognize each other across a crowded train platform, the background falls softly out of focus as they smile, intimate slow-motion medium shot, gentle afternoon light.',
+  ),
+];
+
 class ProjectsPage extends StatelessWidget {
   final HotIceStore store;
   final ValueChanged<String> onOpen;
@@ -77,6 +92,18 @@ class ProjectsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Count once per frame rather than repeatedly scanning every draft for
+    // every visible project card. This keeps the grid responsive as it grows.
+    final sceneCounts = <String, int>{};
+    for (final draft in store.drafts) {
+      sceneCounts.update(draft.projectId, (count) => count + 1,
+          ifAbsent: () => 1);
+    }
+    final storyboardCounts = <String, int>{};
+    for (final plan in store.musicPlans) {
+      storyboardCounts.update(plan.projectId, (count) => count + 1,
+          ifAbsent: () => 1);
+    }
     return PageFrame(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -93,9 +120,10 @@ class ProjectsPage extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           const DemoNotice(
-            'Demo only: projects, scenes and storyboards are stored in memory '
-            'and will be lost when the app restarts. Device storage and '
-            'paid cloud backup are not connected yet.',
+            'On the installed HOTICE app, project text and storyboards are '
+            'saved in encrypted device storage. Media files are not included. '
+            'There is no automatic cloud backup; uninstalling the app or '
+            'losing the device key can make local work unrecoverable.',
           ),
           const SizedBox(height: 22),
           if (store.projects.isEmpty)
@@ -189,10 +217,8 @@ class ProjectsPage extends StatelessWidget {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              '${store.drafts.where((item) => item.projectId == project.id).length} '
-                              'scene drafts · '
-                              '${store.musicPlans.where((item) => item.projectId == project.id).length} '
-                              'storyboards',
+                              '${sceneCounts[project.id] ?? 0} scene drafts · '
+                              '${storyboardCounts[project.id] ?? 0} storyboards',
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context).textTheme.bodySmall,
@@ -396,6 +422,34 @@ class _GenerationPageState extends State<GenerationPage> {
               alignLabelWithHint: true,
               hintText: 'A cinematic night scene, dramatic lighting...',
             ),
+          ),
+          const SizedBox(height: 12),
+          Text('Prompt starters',
+              style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 4),
+          const Text(
+            'Choose an original text example, then edit it to fit your scene.',
+            style: TextStyle(fontSize: 12),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              for (final (label, example) in _promptStarters)
+                ActionChip(
+                  key: ValueKey('prompt-starter-$label'),
+                  tooltip: 'Use the $label prompt starter',
+                  avatar: const Icon(Icons.auto_awesome, size: 16),
+                  label: Text(label),
+                  onPressed: () {
+                    prompt.value = TextEditingValue(
+                      text: example,
+                      selection: TextSelection.collapsed(offset: example.length),
+                    );
+                  },
+                ),
+            ],
           ),
           const SizedBox(height: 13),
           DropdownButtonFormField<String>(

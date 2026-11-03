@@ -118,8 +118,16 @@ class PageFrame extends StatelessWidget {
   const PageFrame({super.key, required this.child});
   @override
   Widget build(BuildContext context) {
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    // Compact phones and split-screen layouts should not lose usable space
+    // to desktop-sized gutters. Preserve the full content width in a scroll
+    // view, so enlarged accessibility text can wrap rather than clip.
+    final gutter = viewportWidth < 360 ? 12.0
+        : viewportWidth < 600 ? 16.0 : 24.0;
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 28, 20, 56),
+      padding: EdgeInsets.fromLTRB(
+        gutter, viewportWidth < 600 ? 20 : 32, gutter, 56,
+      ),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1160),

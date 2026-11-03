@@ -511,6 +511,37 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('prompt starter fills the editable scene prompt', (tester) async {
+    tester.view.physicalSize = const Size(320, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final store = HotIceStore();
+    addTearDown(store.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: MediaQuery(
+        data: const MediaQueryData(textScaler: TextScaler.linear(1.5)),
+        child: Scaffold(body: GenerationPage(store: store)),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final field = find.widgetWithText(TextField, 'Describe your shot');
+    final starter = find.byKey(const ValueKey('prompt-starter-Neon rain'));
+    await tester.ensureVisible(starter);
+    await tester.tap(starter);
+    await tester.pumpAndSettle();
+
+    final controller = tester.widget<TextField>(field).controller!;
+    expect(controller.text, startsWith('A lone jazz musician'));
+    expect(controller.text, contains('slow camera push-in'));
+    expect(controller.selection.baseOffset, controller.text.length);
+    expect(store.drafts, isEmpty, reason: 'A starter must not create a draft.');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('unsaved scene prompts stay with their own projects',
       (tester) async {
     final store = HotIceStore();
