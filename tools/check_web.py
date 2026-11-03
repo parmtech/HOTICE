@@ -57,6 +57,7 @@ def main():
     for element_id in ("projectTitle", "saveLocalProject", "localProjects", "cloudSyncConsent",
                        "loadCloudProjects", "cloudProjects", "cloudProjectStatus"):
         assert 'id="' + element_id + '"' in html, "Missing local/cloud project control: " + element_id
+    assert 'id="clipTimeline" role="list"' in html, "Timeline must expose its list semantics"
     assert 'type="checkbox"' in html and "I agree to sync the saved project I choose" in html
 
     raw = json.loads((PUBLIC / "assets" / "inspiration.json").read_text(encoding="utf-8"))
@@ -97,6 +98,9 @@ def main():
     assert "accountApi('/v1/auth/logout'" in script
     assert "get(accountFocusTargets[mode])?.focus()" in script
     assert "button.setAttribute('aria-pressed', String(visible))" in script
+    assert "box.setAttribute('role', 'listitem')" in script
+    assert "open.setAttribute('aria-pressed', String(activeClip === index))" in script
+    assert "focusedControl?.dataset.clipAction" in script, "Timeline updates must restore focused controls"
     assert "credentials: 'omit'" in script and "redirect: 'error'" in script
     assert "parsed.protocol === 'http:' && localPage" in script, "Insecure API origins must be limited to local development"
     assert "localStorage.setItem('hotice.accessToken'" not in script

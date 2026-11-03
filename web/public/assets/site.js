@@ -303,6 +303,11 @@
   }
   function renderClips() {
     if (!list) return;
+    const focusedControl = document.activeElement?.closest('.clip-controls [data-clip-action]');
+    const focusedClip = focusedControl?.closest('.clip');
+    const focusClipId = focusedClip?.dataset.clipId || null;
+    const focusAction = focusedControl?.dataset.clipAction || null;
+    const focusIndex = focusedClip ? [...list.children].indexOf(focusedClip) : -1;
     list.replaceChildren();
     if (!clips.length) {
       list.append(make('div', 'empty-timeline',
@@ -310,17 +315,23 @@
     }
     clips.forEach((clip, index) => {
       const box = make('div', 'clip' + (activeClip === index ? ' active' : ''));
+      box.dataset.clipId = String(clip.id);
+      box.setAttribute('role', 'listitem');
       box.append(make('strong', '', clip.name));
       box.append(make('small', '', clip.url
         ? (clip.end - clip.start).toFixed(1) + ' seconds' : 'Scene placeholder'));
       const controls = make('div', 'clip-controls');
-      const open = make('button', '', 'Select');
+      const open = make('button', '', activeClip === index ? 'Selected' : 'Select');
+      open.dataset.clipAction = 'select';
+      open.setAttribute('aria-pressed', String(activeClip === index));
       open.addEventListener('click', () => selectClip(index));
       const earlier = make('button', '', '←');
+      earlier.dataset.clipAction = 'move-earlier';
       earlier.disabled = index === 0;
       earlier.setAttribute('aria-label', 'Move clip earlier');
       earlier.addEventListener('click', () => shift(index, -1));
       const later = make('button', '', '→');
+      later.dataset.clipAction = 'move-later';
       later.disabled = index === clips.length - 1;
       later.setAttribute('aria-label', 'Move clip later');
       later.addEventListener('click', () => shift(index, 1));
@@ -328,6 +339,17 @@
       box.append(controls);
       list.append(box);
     });
+    if (focusClipId && focusAction) {
+      const items = [...list.querySelectorAll('.clip')];
+      const sameClip = items.find((item) => item.dataset.clipId === focusClipId);
+      const target = sameClip?.querySelector(`[data-clip-action="${focusAction}"]`);
+      if (target && !target.disabled) {
+        target.focus();
+      } else {
+        const neighbor = sameClip || items[Math.min(focusIndex, items.length - 1)];
+        neighbor?.querySelector('[data-clip-action="select"]')?.focus();
+      }
+    }
   }
   function shift(from, distance) {
     const to = from + distance;

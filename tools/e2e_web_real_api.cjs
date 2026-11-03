@@ -89,6 +89,26 @@ async function main() {
     });
     await page.goto(`http://127.0.0.1:${port}`, {waitUntil: 'networkidle'});
     await page.locator('#scenePrompt').fill('A blue sailboat glides across a calm lake at sunrise.');
+    await page.locator('#addSample').click();
+    await page.locator('#addSample').click();
+    const timelineItems = page.locator('#clipTimeline [role="listitem"]');
+    assert.equal(await timelineItems.count(), 2, 'Timeline clips must be exposed as list items.');
+    const firstTimelineItem = timelineItems.nth(0);
+    const firstTimelineClipId = await firstTimelineItem.getAttribute('data-clip-id');
+    await firstTimelineItem.locator('[data-clip-action="select"]').click();
+    assert.equal(await firstTimelineItem.locator('[data-clip-action="select"]').getAttribute('aria-pressed'), 'true',
+      'The selected timeline clip must expose its pressed state.');
+    assert.equal(await page.evaluate(() => document.activeElement?.dataset.clipAction), 'select',
+      'Selecting a timeline clip must preserve keyboard focus.');
+    await firstTimelineItem.locator('[data-clip-action="move-later"]').click();
+    assert.equal(await timelineItems.nth(1).getAttribute('data-clip-id'), firstTimelineClipId,
+      'Reordering must preserve the same clip identity.');
+    assert.deepEqual(await page.evaluate(() => ({
+      clipId: document.activeElement?.closest('[role="listitem"]')?.dataset.clipId,
+      action: document.activeElement?.dataset.clipAction,
+    })), {clipId: firstTimelineClipId, action: 'move-later'},
+    'Reordering must keep focus on the moved clip control.');
+    await page.locator('#clearTimeline').click();
     assert.equal(await page.locator('#quoteMockJob').isDisabled(), true, 'job actions require an authenticated account');
     await page.locator('#accountEmail').fill(email);
     await page.locator('#accountPassword').fill(password);
