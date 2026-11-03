@@ -381,6 +381,39 @@ void main() {
     expect(store.avatars.where((avatar) => avatar.name == 'Recovered'),
         hasLength(1));
   });
+
+  test('restore rollback targets the captured account after an account switch',
+      () {
+    final store = HotIceStore()..signInDemo('restore@example.com');
+    addTearDown(store.dispose);
+    final capturedWorkspace = store.selectedWorkspaceId;
+    final ref = AvatarReference(
+      id: 'dc229677-8930-45ad-b589-87f6083d2dbb',
+      ownerName: 'Recover Me',
+      role: ReferenceRole.avatar,
+      format: ReferenceFormat.image,
+      mimeType: 'image/jpeg',
+      localPath: '/vault/photo.aes',
+      view: FaceView.front,
+      ownedTemporaryFile: true,
+    );
+    expect(
+      store.addAvatarWithReferences(
+        const StudioAvatar('Recover Me', 'Cinematic'),
+        [ref],
+      ),
+      isTrue,
+    );
+    store.switchAccount('creator@hotice.demo');
+    expect(
+        store.rollbackAvatarRestore(capturedWorkspace, 'Recover Me'), isTrue);
+    final workspaces = store.exportLocalSnapshot()['workspaces'] as Map;
+    final restoredWorkspace = workspaces[capturedWorkspace] as Map;
+    expect(restoredWorkspace['avatars'], isEmpty);
+    expect(restoredWorkspace['avatarReferences'], isEmpty);
+    expect(store.avatars.single.name, 'Nova');
+  });
+
   test('corrupt primary falls back to previous authenticated backup', () async {
     final dir = await Directory.systemTemp.createTemp('hotice-recovery-');
     addTearDown(() async {

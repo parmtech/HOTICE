@@ -321,7 +321,8 @@ class HotIceStore extends ChangeNotifier {
   ) {
     final items = references.toList(growable: false);
     if (avatar.name.trim().isEmpty ||
-        avatars.any((a) => a.name == avatar.name) ||
+        avatar.name != avatar.name.trim() ||
+        avatars.any((a) => a.name.toLowerCase() == avatar.name.toLowerCase()) ||
         items.isEmpty ||
         items.length > 16 ||
         items.any((asset) =>
@@ -337,6 +338,20 @@ class HotIceStore extends ChangeNotifier {
     }
     avatars.add(avatar);
     _workspace.avatarReferences[avatar.name] = items;
+    notifyListeners();
+    return true;
+  }
+
+  /// Removes only staged restore metadata from its captured workspace.
+  /// The restore coordinator owns deleting its encrypted media files.
+  bool rollbackAvatarRestore(String workspaceId, String avatarName) {
+    final workspace = _workspaces[workspaceId];
+    if (workspace == null ||
+        !workspace.avatars.any((avatar) => avatar.name == avatarName)) {
+      return false;
+    }
+    workspace.avatars.removeWhere((avatar) => avatar.name == avatarName);
+    workspace.avatarReferences.remove(avatarName);
     notifyListeners();
     return true;
   }

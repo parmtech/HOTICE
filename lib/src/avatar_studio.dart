@@ -13,12 +13,14 @@ import 'dart:io';
 import 'avatar_identity.dart';
 import 'design.dart';
 import 'state.dart';
+import 'local_store.dart';
 
 /// Local character workshop with separate guided live 2D camera capture.
 /// The five-pose illustration remains a design preview, not a mesh scanner.
 class AvatarsPage extends StatefulWidget {
   final HotIceStore store;
-  const AvatarsPage({super.key, required this.store});
+  final HotIceLocalArchive? archive;
+  const AvatarsPage({super.key, required this.store, this.archive});
 
   @override
   State<AvatarsPage> createState() => _AvatarsPageState();
@@ -194,7 +196,8 @@ class _AvatarsPageState extends State<AvatarsPage> {
         throw const AvatarReferenceBackupException(
             'The active account changed. Start again from the intended account.');
       }
-      if (widget.store.avatars.any((avatar) => avatar.name == decoded.name)) {
+      if (widget.store.avatars.any((avatar) =>
+          avatar.name.toLowerCase() == decoded.name.toLowerCase())) {
         throw const AvatarReferenceBackupException(
             'An actor with this name already exists in the active workspace. Rename or remove it before restoring.');
       }
@@ -237,12 +240,21 @@ class _AvatarsPageState extends State<AvatarsPage> {
           throw const AvatarReferenceBackupException(
               'The actor could not be added to the active workspace.');
         }
+        if (widget.archive != null) {
+          await widget.archive!.flush();
+          if (widget.archive!.writeState != LocalArchiveWriteState.saved) {
+            throw const AvatarReferenceBackupException(
+                'The actor was encrypted but its local project archive could not be saved. Check device storage and try again.');
+          }
+        }
       } catch (_) {
+        widget.store.rollbackAvatarRestore(workspace, decoded.name);
         for (final path in createdPaths) {
           try {
             await vault.deletePhoto(path);
           } catch (_) {}
         }
+        if (widget.archive != null) await widget.archive!.flush();
         rethrow;
       }
       _backupMessage(
