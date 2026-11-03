@@ -203,10 +203,12 @@ async function main() {
     const verificationBody = deliverMail();
     const verificationToken = verificationBody.match(/#token=([a-f0-9]{64})/i)?.[1];
     assert(verificationToken, 'CI mail capture must contain the one-time verification URL.');
+    const verificationResponsePromise = page.waitForResponse((response) =>
+      response.request().method() === 'POST' && new URL(response.url()).pathname === '/v1/auth/verify-email');
     await page.goto(`http://127.0.0.1:${port}/?ciFlow=verify#token=${verificationToken}`, {waitUntil: 'load'});
-    const verificationResponse = apiResponses.filter((response) => response.method === 'POST' && response.path === '/v1/auth/verify-email').at(-1);
-    assert.equal(verificationResponse?.status, 200,
-      `Browser email verification API response must succeed: ${JSON.stringify(verificationResponse)}`);
+    const verificationResponse = await verificationResponsePromise;
+    assert.equal(verificationResponse.status(), 200,
+      `Browser email verification API response must succeed: ${await verificationResponse.text()}`);
     await page.getByText('Email verified. You can now sign in securely.').waitFor();
     assert.equal(await page.evaluate(() => document.activeElement?.id), 'accountEmail',
       'Email verification must return focus to sign-in.');
