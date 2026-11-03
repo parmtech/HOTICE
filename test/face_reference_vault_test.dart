@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hotice/src/face_reference_vault.dart';
 
@@ -14,7 +15,11 @@ void main() {
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('hotice-face-vault-test-');
-    vault = FaceReferenceVault(directory: root, keyLoader: () async => key);
+    vault = FaceReferenceVault(
+      directory: root,
+      keyLoader: () async => key,
+      accountScope: 'workspace-a',
+    );
   });
 
   tearDown(() async {
@@ -74,6 +79,16 @@ void main() {
     );
   });
 
+  test('rejects oversized encrypted files before unbounded reads', () async {
+    final file = File('${root.path}/$idA.aes');
+    await file.writeAsBytes(List<int>.filled(15 * 1024 * 1024 + 46, 0));
+
+    await expectLater(
+      vault.decryptPhoto(file.path),
+      throwsA(isA<FaceReferenceVaultException>()),
+    );
+  });
+
   test('does not replace an existing encrypted reference ID', () async {
     final source = File('${root.path}/source.jpg');
     await source.writeAsBytes([0xff, 0xd8, 0xff, 1, 2, 3]);
@@ -105,11 +120,95 @@ void main() {
     final wrongKey = FaceReferenceVault(
       directory: root,
       keyLoader: () async => List<int>.filled(32, 38),
+      accountScope: 'workspace-a',
     );
     await expectLater(
       wrongKey.decryptPhoto(fresh.path),
       throwsA(isA<FaceReferenceVaultException>()),
     );
+  });
+
+  test('workspace key derivation prevents cross-workspace decryption',
+      () async {
+    final stored = await vault.encryptPhotoBytes(
+      [0xff, 0xd8, 0xff, 1, 2, 3],
+      referenceId: idA,
+    );
+    final otherWorkspace = FaceReferenceVault(
+      directory: root,
+      keyLoader: () async => key,
+      accountScope: 'workspace-b',
+    );
+    await expectLater(
+      otherWorkspace.decryptPhoto(stored.path),
+      throwsA(isA<FaceReferenceVaultException>()),
+    );
+    expect(await vault.decryptPhoto(stored.path), [0xff, 0xd8, 0xff, 1, 2, 3]);
+  });
+
+  test('v2 photo lazily migrates to v3 under its workspace key', () async {
+    final plain = [0xff, 0xd8, 0xff, 8, 7, 6];
+    final cipher = AesGcm.with256bits();
+    final legacyHeader = [...'HOTICE-FACE-REF'.codeUnits, 2, 0];
+    final aad = [...legacyHeader, ...idA.codeUnits];
+    final box = await cipher.encrypt(
+      plain,
+      secretKey: SecretKey(key),
+      nonce: cipher.newNonce(),
+      aad: aad,
+    );
+    final bytes = <int>[
+      ...legacyHeader,
+      ...box.nonce,
+      ...box.mac.bytes,
+      ...box.cipherText
+    ];
+    final path = '${root.path}/$idA.aes';
+    await File(path).writeAsBytes(bytes, flush: true);
+
+    expect(await vault.decryptPhoto(path), plain);
+    final migrated = await File(path).readAsBytes();
+    expect(migrated.take(17).toList(), [...'HOTICE-FACE-REF'.codeUnits, 3, 0]);
+    final otherWorkspace = FaceReferenceVault(
+      directory: root,
+      keyLoader: () async => key,
+      accountScope: 'workspace-b',
+    );
+    await expectLater(
+      otherWorkspace.decryptPhoto(path),
+      throwsA(isA<FaceReferenceVaultException>()),
+    );
+  });
+
+  test('deletion removes interrupted migration artifacts without primary file',
+      () async {
+    final pending = File('${root.path}/$idA.aes.tmp');
+    final backup = File('${root.path}/$idA.aes.migration-backup');
+    await pending.writeAsBytes([1, 2, 3]);
+    await backup.writeAsBytes([4, 5, 6]);
+
+    expect(await vault.deletePhoto('${root.path}/$idA.aes'), isTrue);
+    expect(await pending.exists(), isFalse);
+    expect(await backup.exists(), isFalse);
+    expect(await vault.deletePhoto('${root.path}/$idA.aes'), isFalse);
+  });
+
+  test('orphan cleanup restores retained backup if primary was interrupted',
+      () async {
+    final backup = File('${root.path}/$idA.aes.migration-backup');
+    final pending = File('${root.path}/$idA.aes.tmp');
+    await backup.writeAsBytes([4, 5, 6]);
+    await pending.writeAsBytes([1, 2, 3]);
+
+    expect(
+      await vault.deleteOrphanedFiles(
+        retainedPaths: ['${root.path}/$idA.aes'],
+      ),
+      1,
+    );
+    expect(await File('${root.path}/$idA.aes').readAsBytes(), [4, 5, 6]);
+    expect(await backup.exists(), isFalse);
+    expect(await pending.exists(), isFalse);
   });
 
   test('encrypted photo cannot be moved to another reference ID', () async {
@@ -178,10 +277,48 @@ void main() {
         readEncodedKey: () async => null,
         writeEncodedKey: (_) async => writes++,
       ),
-      throwsA(isA<FaceReferenceVaultException>()),
+      throwsA(
+        isA<FaceReferenceVaultException>().having(
+          (error) => error.failure,
+          'failure',
+          FaceReferenceVaultFailure.deviceKeyUnavailable,
+        ),
+      ),
     );
     expect(writes, 0);
     expect(await existing.readAsBytes(), [1, 2, 3]);
+  });
+
+  test('key loss detects an in-progress encrypted staging file', () async {
+    final staging = File('${root.path}/$idA.aes.tmp');
+    await staging.writeAsBytes([1, 2, 3]);
+    var writes = 0;
+
+    await expectLater(
+      FaceReferenceVault.loadOrCreateDeviceKey(
+        directory: root,
+        readEncodedKey: () async => null,
+        writeEncodedKey: (_) async => writes++,
+      ),
+      throwsA(
+        isA<FaceReferenceVaultException>().having(
+          (error) => error.failure,
+          'failure',
+          FaceReferenceVaultFailure.deviceKeyUnavailable,
+        ),
+      ),
+    );
+    expect(writes, 0);
+    expect(await staging.readAsBytes(), [1, 2, 3]);
+  });
+
+  test('orphan cleanup deletes an unreferenced encrypted staging filename',
+      () async {
+    final staging = File('${root.path}/$idA.aes.tmp');
+    await staging.writeAsBytes([1, 2, 3]);
+
+    expect(await vault.deleteOrphanedFiles(retainedPaths: []), 1);
+    expect(await staging.exists(), isFalse);
   });
 
   test('creates and verifies a device key only when the vault is empty',

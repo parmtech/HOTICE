@@ -110,7 +110,9 @@ class _AvatarsPageState extends State<AvatarsPage> {
         throw const AvatarReferenceBackupException(
             'Encrypted face-photo storage is currently available on Android and iOS.');
       }
-      final vault = await FaceReferenceVault.openOnDevice();
+      final vault = await FaceReferenceVault.openOnDevice(
+        accountScope: workspace,
+      );
       final photos = <AvatarBackupPhoto>[];
       for (final reference in pack.assets) {
         if (reference.view == null) {
@@ -147,6 +149,41 @@ class _AvatarsPageState extends State<AvatarsPage> {
         _backupMessage(
             'Encrypted actor backup saved. Keep the password separately; HOTICE cannot recover it.');
     } catch (error) {
+      if (error is FaceReferenceVaultException &&
+          error.failure == FaceReferenceVaultFailure.deviceKeyUnavailable &&
+          mounted &&
+          workspace == widget.store.selectedWorkspaceId) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Device photo key unavailable'),
+            content: const Text(
+              'HOTICE cannot currently access this device’s face-photo key. '
+              'The encrypted files were left untouched. Try again after '
+              'unlocking or restarting the device. If the key remains '
+              'unavailable, it cannot be recreated while encrypted photos '
+              'remain. To restore a .hoticeactor backup on this device, remove '
+              'old face photos from all local profiles and rename or delete '
+              'this Actor before retrying restore. '
+              'Without a backup, removing these references deletes inaccessible '
+              'photos but keeps the Actor profile and notes.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Keep encrypted photos'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Manage references'),
+              ),
+            ],
+          ),
+        );
+        // Export is launched from the Actor profile sheet, which remains
+        // visible behind this dialog and already contains reference controls.
+        return;
+      }
       _backupMessage(error is AvatarReferenceBackupException
           ? error.message
           : 'Actor backup could not be created. Check the encrypted photo vault and try again.');
@@ -205,7 +242,9 @@ class _AvatarsPageState extends State<AvatarsPage> {
         throw const AvatarReferenceBackupException(
             'Encrypted face-photo storage is currently available on Android and iOS.');
       }
-      final vault = await FaceReferenceVault.openOnDevice();
+      final vault = await FaceReferenceVault.openOnDevice(
+        accountScope: workspace,
+      );
       final createdPaths = <String>[];
       final references = <AvatarReference>[];
       try {
@@ -264,6 +303,14 @@ class _AvatarsPageState extends State<AvatarsPage> {
       _backupMessage(
           'Actor restored to this device. Face photos are encrypted locally; no 3D scan is claimed.');
     } catch (error) {
+      if (error is FaceReferenceVaultException &&
+          error.failure == FaceReferenceVaultFailure.deviceKeyUnavailable) {
+        _backupMessage(
+          'This device still has encrypted face photos without their key. '
+          'Remove old face photos from all local profiles before restoring a backup here.',
+        );
+        return;
+      }
       _backupMessage(error is AvatarReferenceBackupException
           ? error.message
           : 'Actor backup could not be restored. Check the file and password, then try again.');
@@ -394,6 +441,7 @@ class _AvatarsPageState extends State<AvatarsPage> {
   }
 
   Future<void> startRealCapture(StudioAvatar avatar) async {
+    final workspace = widget.store.selectedWorkspaceId;
     if (widget.store.avatarPackFor(avatar.name).assets.length > 11) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Remove some previous photos before adding five more.'),
@@ -401,12 +449,24 @@ class _AvatarsPageState extends State<AvatarsPage> {
       return;
     }
     final photos = await Navigator.of(context).push<List<CapturedFacePhoto>>(
-      MaterialPageRoute(builder: (_) => const LiveFaceScanPage()),
+      MaterialPageRoute(
+        builder: (_) => LiveFaceScanPage(accountScope: workspace),
+      ),
     );
     if (photos == null || photos.isEmpty) return;
     if (!mounted) {
       for (final photo in photos) {
         try { await File(photo.path).delete(); } catch (_) {}
+      }
+      return;
+    }
+    if (workspace != widget.store.selectedWorkspaceId) {
+      for (final photo in photos) {
+        try {
+          await (await FaceReferenceVault.openOnDevice(
+            accountScope: workspace,
+          )).deletePhoto(photo.path);
+        } catch (_) {}
       }
       return;
     }
@@ -437,7 +497,11 @@ class _AvatarsPageState extends State<AvatarsPage> {
       if (success) {
         saved++;
       } else {
-        try { await (await FaceReferenceVault.openOnDevice()).deletePhoto(shot.path); } catch (_) {}
+        try {
+          await (await FaceReferenceVault.openOnDevice(
+            accountScope: workspace,
+          )).deletePhoto(shot.path);
+        } catch (_) {}
       }
     }
     if (!mounted) return;
@@ -492,6 +556,7 @@ class _AvatarsPageState extends State<AvatarsPage> {
       ),
     );
     if (!mounted || consent != true) return;
+    final workspace = widget.store.selectedWorkspaceId;
     String? selectedPickerPath;
     try {
       final file = await FilePicker.pickFile(type: FileType.image);
@@ -531,12 +596,15 @@ class _AvatarsPageState extends State<AvatarsPage> {
       final id = createLocalProjectId();
       late final StoredFaceReference encrypted;
       try {
-        encrypted = await (await FaceReferenceVault.openOnDevice())
+        encrypted = await (await FaceReferenceVault.openOnDevice(
+          accountScope: workspace,
+        ))
             .encryptPhoto(File(path), referenceId: id);
       } finally {
         await _removePickerCacheCopy(path);
       }
-      final saved = widget.store.addAvatarReference(avatar.name, AvatarReference(
+      final saved = workspace == widget.store.selectedWorkspaceId &&
+          widget.store.addAvatarReference(avatar.name, AvatarReference(
         id: encrypted.id,
         ownerName: avatar.name,
         role: ReferenceRole.avatar,
@@ -547,21 +615,26 @@ class _AvatarsPageState extends State<AvatarsPage> {
         ownedTemporaryFile: true,
       ));
       if (!saved) {
-        await (await FaceReferenceVault.openOnDevice())
+        await (await FaceReferenceVault.openOnDevice(
+          accountScope: workspace,
+        ))
             .deletePhoto(encrypted.path);
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(saved
           ? '${view.label} reference added to this device encrypted Actor library.'
           : 'Could not add reference. Check avatar and limit (16).')));
-    } catch (_) {
+    } catch (error) {
       if (selectedPickerPath != null) {
         await _removePickerCacheCopy(selectedPickerPath);
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Image selection failed or was cancelled.'),
-      ));
+      final message = error is FaceReferenceVaultException &&
+              error.failure == FaceReferenceVaultFailure.deviceKeyUnavailable
+          ? 'Device photo key unavailable. Retry after device restart; if persistent, remove old photos from all profiles before restoring a backup.'
+          : 'Image selection failed or was cancelled.';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     }
   }
 

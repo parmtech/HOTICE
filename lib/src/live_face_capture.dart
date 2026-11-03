@@ -20,7 +20,8 @@ class CapturedFacePhoto {
 
 /// On-device 2D guided capture. No depth mesh, biometric ID, or cloud uploads.
 class LiveFaceScanPage extends StatefulWidget {
-  const LiveFaceScanPage({super.key});
+  const LiveFaceScanPage({super.key, required this.accountScope});
+  final String accountScope;
 
   @override
   State<LiveFaceScanPage> createState() => _LiveFaceScanPageState();
@@ -52,7 +53,9 @@ class _LiveFaceScanPageState extends State<LiveFaceScanPage>
   bool _invertYaw = false;
 
   Future<FaceReferenceVault> get _vault =>
-      _vaultFuture ??= FaceReferenceVault.openOnDevice();
+      _vaultFuture ??= FaceReferenceVault.openOnDevice(
+        accountScope: widget.accountScope,
+      );
 
   Future<void> _deleteVaultPhoto(String path) async {
     try {
@@ -492,6 +495,7 @@ class _LiveFaceScanPageState extends State<LiveFaceScanPage>
                           child: _VaultPhotoPreview(
                             key: ValueKey(shot.id),
                             path: shot.path,
+                            accountScope: widget.accountScope,
                           ),
                         ),
                       ),
@@ -524,8 +528,13 @@ class _LiveFaceScanPageState extends State<LiveFaceScanPage>
 }
 
 class _VaultPhotoPreview extends StatefulWidget {
-  const _VaultPhotoPreview({super.key, required this.path});
+  const _VaultPhotoPreview({
+    super.key,
+    required this.path,
+    required this.accountScope,
+  });
   final String path;
+  final String accountScope;
 
   @override
   State<_VaultPhotoPreview> createState() => _VaultPhotoPreviewState();
@@ -546,8 +555,9 @@ class _VaultPhotoPreviewState extends State<_VaultPhotoPreview> {
     if (oldWidget.path != widget.path) _photo = _load();
   }
 
-  Future<Uint8List> _load() async =>
-      (await FaceReferenceVault.openOnDevice()).decryptPhoto(widget.path);
+  Future<Uint8List> _load() async => (await FaceReferenceVault.openOnDevice(
+        accountScope: widget.accountScope,
+      )).decryptPhoto(widget.path);
 
   @override
   Widget build(BuildContext context) => SizedBox(
