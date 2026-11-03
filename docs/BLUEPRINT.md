@@ -1,3 +1,5 @@
+> **Historical document:** For the canonical current product contract, branch inventory and continuation instructions, read [HOTICE_HANDOFF.md](../HOTICE_HANDOFF.md). Status claims below describe earlier work and must be revalidated against the selected branch.
+
 # HOTICE — Product Blueprint (Initial Specification)
 
 ## 1. Vision
