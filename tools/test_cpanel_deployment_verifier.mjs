@@ -38,8 +38,19 @@ test('passes healthy API and denies every protected path probe', async () => {
   });
   assert.equal(result.ok, true, result.failures.join('\n'));
   assert.equal(requests.length, result.checkedPaths + 2);
-  assert.ok(requests.every(({ options }) => options.method === 'GET' && options.redirect === 'manual'));
+  assert.ok(requests.every(({ options }) => options.method === 'GET' && options.redirect === 'manual' && options.signal instanceof AbortSignal));
   assert.ok(requests.some(({ url }) => url.includes('/%2e%2e%2fconfig.php')));
+});
+
+test('aborts a request that exceeds its deadline and validates timeout bounds', async () => {
+  const result = await verifyDeployment('https://api.example.com', async (_url, options) =>
+    new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+    }), { timeoutMs: 5 });
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.includes('/health: request failed'));
+  await assert.rejects(verifyDeployment('https://api.example.com', fetch, { timeoutMs: 0 }), /between 1 and 30000/);
+  await assert.rejects(verifyDeployment('https://api.example.com', fetch, { timeoutMs: 30001 }), /between 1 and 30000/);
 });
 
 test('fails closed when a secret-bearing path is publicly served', async () => {

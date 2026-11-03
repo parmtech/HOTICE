@@ -1,6 +1,6 @@
 # cPanel staging acceptance check
 
-This is a read-only deployment smoke check for an already configured HOTICE API. It makes HTTPS `GET` requests only, sends no credentials or user data, and never calls an AI provider or payment service.
+This is a read-only deployment smoke check for an already configured HOTICE API. It makes HTTPS `GET` requests only, sends no credentials or user data, applies an eight-second deadline to each request, and never calls an AI provider or payment service. A timeout is reported as a failed probe; it is not silently retried.
 
 ## Run
 
