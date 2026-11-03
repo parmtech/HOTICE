@@ -734,3 +734,32 @@ Repository references: [release issue #33](https://github.com/parmtech/HOTICE/is
   and Flutter analysis passing; APK and emulator jobs are active.
 - Keep #85 draft. No real provider/payment calls or deployment. Release remains
   NOT READY TO PUBLISH.
+
+## Latest continuation: portable actor reference recovery
+
+- Draft PR [#87](https://github.com/parmtech/HOTICE/pull/87), child of PR #86
+  → #79, adds user-controlled `.hoticeactor` export/restore for typed face
+  references. The encrypted envelope preserves actor name/style/identity notes,
+  FaceView and MIME while excluding account IDs, device paths, vault keys and
+  credentials. It uses AES-256-GCM with PBKDF2-HMAC-SHA256 (180,000 rounds),
+  a fresh salt/nonce, authenticated versioning and strict count/size/signature
+  validation.
+- Restore keeps clear image bytes in memory, encrypts directly into the
+  device-key vault, commits actor metadata once, waits for encrypted local
+  archive persistence, and rolls both metadata and staged ciphertext back on
+  failure. If the user switches accounts during restore, rollback targets the
+  originally captured workspace. Passwords are not stored. This is a
+  user-managed encrypted file; it is not cloud sync or 3D reconstruction.
+- PR #87 head `4c1d3b8983ced95ea1b0df573a320cfc0180748a`: local Flutter suite
+  passed 131 tests; `flutter analyze --no-pub --no-fatal-infos` passed with
+  informational lints only; `git diff --check` passed. Exact-head Actions run
+  [41726387461](https://github.com/parmtech/HOTICE/actions/runs/41726387461)
+  has inventory/web checks passed and Flutter tests active at this update.
+  Prior source-head run [41725102766](https://github.com/parmtech/HOTICE/actions/runs/41725102766)
+  passed analysis/tests, PHP policy, inventory, static web and APK; emulator
+  smoke remained active unusually long. Local APK build is unavailable without
+  the generated Android scaffold, which CI creates before compiling.
+- PR #32 and #79 remain open and unchanged; PR #86 remains draft. Physical
+  Android/iOS backup picker, save-dialog, interruption, low-storage and
+  account-switch QA remains outstanding. Keep PR #87 draft and the release
+  decision **NOT READY TO PUBLISH**.
