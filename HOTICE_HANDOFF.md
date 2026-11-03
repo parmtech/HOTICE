@@ -715,7 +715,7 @@ Repository references: [release issue #33](https://github.com/parmtech/HOTICE/is
 
 - Draft PR #85 (`feat/web-cloud-upload-quota-preflight`) is stacked on PR #84
   → #83 → #82 → #71, at head
-  `c1cb5ac6c6ec97e0f9636e93a47fe1341f4349b9`. Before per-file confirmation,
+  `0faf88f36fc591cdece4812a3abe0cd9f2355593`. Before per-file confirmation,
   the client refreshes the authenticated profile and checks server-reported
   free space. An over-quota file is stopped before confirmation and before any
   media request; the local file remains unchanged. Missing/invalid quota,
@@ -727,9 +727,10 @@ Repository references: [release issue #33](https://github.com/parmtech/HOTICE/is
   upload request count both remain zero, then restores quota and proves the
   same file uploads after one confirmation. All 11 scenarios passed with
   `realProviderCalls=0`.
-- Exact-head client CI run
+- Exact-head client CI is pending after the final single-flight/selected-clip
+  guard update; re-fetch the run for head `0faf88f`. Prior head run
   [41698631895](https://github.com/parmtech/HOTICE/actions/runs/41698631895)
-  is queued. PR #84 run 41698095222 has static web/catalog and Flutter analysis
-  passing; APK and emulator jobs are active.
+  started before this final edit. PR #84 run 41698095222 has static web/catalog
+  and Flutter analysis passing; APK and emulator jobs are active.
 - Keep #85 draft. No real provider/payment calls or deployment. Release remains
   NOT READY TO PUBLISH.
