@@ -6,12 +6,18 @@ on:
       - 'backend/**'
       - 'tools/verify_cpanel_deployment.mjs'
       - 'tools/test_cpanel_deployment_verifier.mjs'
+      - 'tools/check_web.py'
+      - 'tools/e2e_web_real_api.cjs'
+      - 'web/**'
       - '.github/workflows/backend_ci.yml'
   pull_request:
     paths:
       - 'backend/**'
       - 'tools/verify_cpanel_deployment.mjs'
       - 'tools/test_cpanel_deployment_verifier.mjs'
+      - 'tools/check_web.py'
+      - 'tools/e2e_web_real_api.cjs'
+      - 'web/**'
       - '.github/workflows/backend_ci.yml'
 jobs:
   php-static:

@@ -89,6 +89,35 @@ async function main() {
     });
     await page.goto(`http://127.0.0.1:${port}`, {waitUntil: 'networkidle'});
     await page.locator('#scenePrompt').fill('A blue sailboat glides across a calm lake at sunrise.');
+    await page.locator('#addSample').click();
+    await page.locator('#addSample').click();
+    await page.locator('#addSample').click();
+    const timelineItems = page.locator('#clipTimeline [role="listitem"]');
+    assert.equal(await timelineItems.count(), 3, 'Timeline clips must be exposed as list items.');
+    const firstTimelineItem = timelineItems.nth(0);
+    const firstTimelineClipId = await firstTimelineItem.getAttribute('data-clip-id');
+    const firstClipSelector = `#clipTimeline [data-clip-id="${firstTimelineClipId}"]`;
+    await page.locator(`${firstClipSelector} [data-clip-action="select"]`).click();
+    assert.equal(await page.locator(`${firstClipSelector} [data-clip-action="select"]`).getAttribute('aria-pressed'), 'true',
+      'The selected timeline clip must expose its pressed state.');
+    assert.equal(await page.evaluate(() => document.activeElement?.dataset.clipAction), 'select',
+      'Selecting a timeline clip must preserve keyboard focus.');
+    await page.locator(`${firstClipSelector} [data-clip-action="move-later"]`).click();
+    assert.equal(await timelineItems.nth(1).getAttribute('data-clip-id'), firstTimelineClipId,
+      'Reordering must preserve the same clip identity.');
+    assert.deepEqual(await page.evaluate(() => ({
+      clipId: document.activeElement?.closest('[role="listitem"]')?.dataset.clipId,
+      action: document.activeElement?.dataset.clipAction,
+    })), {clipId: firstTimelineClipId, action: 'move-later'},
+    'Reordering must keep focus on the moved clip control.');
+    await page.locator(`${firstClipSelector} [data-clip-action="move-later"]`).click();
+    assert.equal(await timelineItems.nth(2).getAttribute('data-clip-id'), firstTimelineClipId);
+    assert.deepEqual(await page.evaluate(() => ({
+      clipId: document.activeElement?.closest('[role="listitem"]')?.dataset.clipId,
+      action: document.activeElement?.dataset.clipAction,
+    })), {clipId: firstTimelineClipId, action: 'select'},
+    'At the end of the timeline, focus must move to an enabled action on the moved clip.');
+    await page.locator('#clearTimeline').click();
     assert.equal(await page.locator('#quoteMockJob').isDisabled(), true, 'job actions require an authenticated account');
     await page.locator('#accountEmail').fill(email);
     await page.locator('#accountPassword').fill(password);
@@ -121,12 +150,26 @@ async function main() {
     // Exercise the public account lifecycle in the actual browser/API pair.
     await page.locator('#accountSignOut').click();
     await page.getByText('Signed out. The server session was revoked.').waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'accountEmail',
+      'Sign-out must return keyboard focus to the sign-in form.');
     await page.locator('#showRegister').click();
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'registerEmail',
+      'Opening registration must move focus into its first field.');
+    const registerPasswordToggle = page.locator('[data-password-toggle="registerPassword"]');
+    await registerPasswordToggle.click();
+    assert.equal(await page.locator('#registerPassword').getAttribute('type'), 'text');
+    assert.equal(await registerPasswordToggle.getAttribute('aria-pressed'), 'true');
+    assert.equal(await registerPasswordToggle.innerText(), 'Hide new password');
+    await registerPasswordToggle.click();
+    assert.equal(await page.locator('#registerPassword').getAttribute('type'), 'password');
+    assert.equal(await registerPasswordToggle.getAttribute('aria-pressed'), 'false');
     await page.locator('#registerEmail').fill(registerEmail);
     await page.locator('#registerPassword').fill(registerPassword);
     await page.locator('#registerPasswordConfirm').fill(registerPassword);
     await page.locator('#accountCreate').click();
     await page.getByText(/If registration is available, a verification link will be sent/).waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'resendEmail',
+      'Registration completion must focus the verification recovery field.');
     const registerRequest = apiRequests.find((request) => request.path === '/v1/auth/register' && request.method === 'POST');
     assert(registerRequest && registerRequest.body.email === registerEmail,
       'Browser registration must use the shared account API.');
@@ -134,6 +177,8 @@ async function main() {
       'Registration response must preserve the anti-enumeration accepted status.');
 
     await page.locator('#accountResend [data-account-view="login"]').click();
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'accountEmail',
+      'Returning to sign-in must focus its first field.');
     await page.locator('#accountEmail').fill(registerEmail);
     await page.locator('#accountPassword').fill(registerPassword);
     await page.locator('#accountSignIn').click();
@@ -157,15 +202,22 @@ async function main() {
     assert.equal(verificationResponse?.status, 200,
       `Browser email verification API response must succeed: ${JSON.stringify(verificationResponse)}`);
     await page.getByText('Email verified. You can now sign in securely.').waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'accountEmail',
+      'Email verification must return focus to sign-in.');
 
     await page.locator('#accountEmail').fill(registerEmail);
     await page.locator('#accountPassword').fill(registerPassword);
     await page.locator('#accountSignIn').click();
     await page.getByText('Signed in and verified with the HOTICE server.').waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'accountSignOut',
+      'Successful sign-in must move focus to the signed-in action.');
     await page.locator('#accountSignOut').click();
     await page.getByText('Signed out. The server session was revoked.').waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'accountEmail');
 
     await page.locator('#showPasswordReset').click();
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'resetRequestEmail',
+      'Opening password recovery must focus its first field.');
     await page.locator('#resetRequestEmail').fill(registerEmail);
     await page.locator('#accountResetRequest button[type="submit"]').click();
     await page.getByText('If an eligible account exists, a password reset link will be sent.').waitFor();
@@ -173,11 +225,21 @@ async function main() {
     const resetToken = resetBody.match(/#reset=([a-f0-9]{64})/i)?.[1];
     assert(resetToken, 'CI mail capture must contain the one-time password reset URL.');
     await page.goto(`http://127.0.0.1:${port}/?ciFlow=reset#reset=${resetToken}`, {waitUntil: 'networkidle'});
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'resetNewPassword',
+      'A valid reset link must focus the new-password field.');
+    const resetPasswordToggle = page.locator('[data-password-toggle="resetNewPassword"]');
+    await resetPasswordToggle.click();
+    assert.equal(await page.locator('#resetNewPassword').getAttribute('type'), 'text');
+    assert.equal(await resetPasswordToggle.getAttribute('aria-pressed'), 'true');
+    await resetPasswordToggle.click();
+    assert.equal(await page.locator('#resetNewPassword').getAttribute('type'), 'password');
     const rotatedPassword = registerPassword + 'Rotate1';
     await page.locator('#resetNewPassword').fill(rotatedPassword);
     await page.locator('#resetConfirmPassword').fill(rotatedPassword);
     await page.locator('#accountResetComplete button[type="submit"]').click();
     await page.getByText('Password updated and existing sessions revoked. Sign in with your new password.').waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'accountEmail',
+      'Password reset completion must focus sign-in.');
     await page.locator('#accountEmail').fill(registerEmail);
     await page.locator('#accountPassword').fill(registerPassword);
     await page.locator('#accountSignIn').click();
