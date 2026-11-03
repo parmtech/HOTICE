@@ -28,6 +28,8 @@ return [
     // scheduled CLI scanner is running, uploads remain quarantined and cannot
     // be downloaded. Never set this to a no-op scanner outside isolated tests.
     'clamdscan_path' => '/usr/bin/clamdscan',
+    // Upper bound per CLI scan batch; the worker clamps this to 1–300 seconds.
+    'media_scan_batch_seconds' => 180,
     // Opt-in only for staging dry runs. This never enables real provider calls.
     'mock_jobs_enabled' => false,
     'mock_job_cost_credits' => 5,

@@ -135,6 +135,37 @@ curl -fsS -H "$AUTH" "$BASE/v1/projects/$id" | jq -e --arg clean "$file" --arg i
   ($files | any(.id == $infected and .scan_status == "blocked")) and
   ($files | any(.id == $retry and .scan_status == "pending"))
 ' >/dev/null
+# Enforce a hard per-invocation budget, even if one scanner process hangs.
+php -r '
+require_once "backend/src/App.php";
+$config=require "backend/config.php";
+$db=(new Hotice\App($config))->database();
+$q=$db->prepare("SELECT storage_name FROM cloud_files WHERE id=?"); $q->execute([$argv[1]]);
+$stored=(string)$q->fetchColumn();
+$path=$config["storage_path"]."/".$stored;
+if (!is_file($path) || file_put_contents($path, file_get_contents("/tmp/hotice-ci-test.png")."HOTICE_TEST_SCANNER_SLOW")===false) exit(1);
+$db->prepare("UPDATE cloud_files SET scan_status=\x27pending\x27,next_scan_at=UTC_TIMESTAMP() WHERE id=?")->execute([$argv[1]]);
+' "$file"
+scan_started=$(date +%s%3N)
+set +e
+limited_scan=$(php backend/bin/scan-media.php 20 1)
+limited_status=$?
+set -e
+scan_elapsed=$(( $(date +%s%3N) - scan_started ))
+test "$limited_status" -eq 1
+test "$scan_elapsed" -lt 5000
+echo "$limited_scan" | jq -e '.retryableFailures == 1 and .batchLimited == true' >/dev/null
+php -r '
+require_once "backend/src/App.php";
+$config=require "backend/config.php"; $db=(new Hotice\App($config))->database();
+$q=$db->prepare("SELECT storage_name,scan_status,TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),next_scan_at) AS due FROM cloud_files WHERE id=?"); $q->execute([$argv[1]]); $row=$q->fetch();
+$path=$config["storage_path"]."/".$row["storage_name"];
+if (!is_file($path) || file_put_contents($path,file_get_contents("/tmp/hotice-ci-test.png"))===false) exit(1);
+$db->prepare("UPDATE cloud_files SET sha256=?,byte_size=?,scan_status=\x27pending\x27,next_scan_at=UTC_TIMESTAMP() WHERE id=?")
+  ->execute([hash_file("sha256",$path),filesize($path),$argv[1]]);
+' "$file"
+bounded_retry=$(php backend/bin/scan-media.php 20 10)
+echo "$bounded_retry" | jq -e '.scannedClean == 1 and .batchLimited == false' >/dev/null
 status=$(curl -sS -o /dev/null -w '%{http_code}' -H "$AUTH" "$BASE/v1/files/$infected_file")
 test "$status" = '423'
 status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H "$AUTH" "$BASE/v1/files/$infected_file/access-grants")

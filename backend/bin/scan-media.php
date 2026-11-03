@@ -4,7 +4,7 @@ if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once dirname(__DIR__) . '/src/App.php';
 
 /** @param array<string,mixed> $config */
-function runMediaScan(array $config, int $limit): int
+function runMediaScan(array $config, int $limit, int $batchSeconds): int
 {
     try {
         $app = new \Hotice\App($config);
@@ -40,7 +40,14 @@ function runMediaScan(array $config, int $limit): int
             $q->execute();
             $defer = $db->prepare("UPDATE cloud_files SET next_scan_at=DATE_ADD(UTC_TIMESTAMP(), INTERVAL 5 MINUTE) WHERE id=? AND storage_name=? AND scan_status='pending'");
             $clean = $blocked = $retryable = 0;
+            $batchStarted = microtime(true);
+            $batchLimited = false;
             foreach ($q->fetchAll() as $file) {
+                $remaining = $batchSeconds - (microtime(true) - $batchStarted);
+                if ($remaining < 1.0) {
+                    $batchLimited = true;
+                    break;
+                }
                 $name = (string)$file['storage_name'];
                 if (!\Hotice\Support::secureFileName($name)) {
                     $defer->execute([$file['id'], $name]);
@@ -50,6 +57,11 @@ function runMediaScan(array $config, int $limit): int
                 if (is_link($path) || !is_file($path) || !is_readable($path)) {
                     $defer->execute([$file['id'], $name]);
                     $retryable++; continue;
+                }
+                $remaining = $batchSeconds - (microtime(true) - $batchStarted);
+                if ($remaining < 1.0) {
+                    $batchLimited = true;
+                    break;
                 }
                 $pipes = [];
                 $process = proc_open([$config['clamdscan_path'], '--no-summary', '--', $path], [
@@ -61,18 +73,22 @@ function runMediaScan(array $config, int $limit): int
                     $defer->execute([$file['id'], $name]);
                     $retryable++; continue;
                 }
+                $timeoutSeconds = min(120.0, $remaining);
                 $started = microtime(true);
+                $timedOut = false;
                 do {
                     $state = proc_get_status($process);
                     if (!$state['running']) { $code = $state['exitcode']; break; }
-                    if (microtime(true) - $started >= 120) {
+                    if (microtime(true) - $started >= $timeoutSeconds) {
                         proc_terminate($process, 9);
                         $code = -1;
+                        $timedOut = true;
                         break;
                     }
                     usleep(200000);
                 } while (true);
                 proc_close($process);
+                if ($timedOut) $batchLimited = true;
                 if ($code !== 0 && $code !== 1) {
                     $defer->execute([$file['id'], $name]);
                     $retryable++; continue;
@@ -82,7 +98,12 @@ function runMediaScan(array $config, int $limit): int
                 $update->execute([$status, $file['id'], $name]);
                 if ($update->rowCount() === 1) $status === 'clean' ? $clean++ : $blocked++;
             }
-            echo json_encode(['scannedClean' => $clean, 'blocked' => $blocked, 'retryableFailures' => $retryable], JSON_THROW_ON_ERROR) . "\n";
+            echo json_encode([
+                'scannedClean' => $clean,
+                'blocked' => $blocked,
+                'retryableFailures' => $retryable,
+                'batchLimited' => $batchLimited,
+            ], JSON_THROW_ON_ERROR) . "\n";
             return $retryable > 0 ? 1 : 0;
         } finally {
             $release = $db->prepare('SELECT RELEASE_LOCK(?)');
@@ -101,4 +122,8 @@ if ($scanner === '' || !str_starts_with($scanner, '/') || !is_executable($scanne
     exit(2);
 }
 $limit = isset($argv[1]) && ctype_digit($argv[1]) ? (int)$argv[1] : 20;
-exit(runMediaScan($config, $limit));
+$configuredBatchSeconds = max(1, min(300, (int)($config['media_scan_batch_seconds'] ?? 180)));
+$batchSeconds = isset($argv[2]) && ctype_digit($argv[2])
+    ? max(1, min(300, (int)$argv[2]))
+    : $configuredBatchSeconds;
+exit(runMediaScan($config, $limit, $batchSeconds));
