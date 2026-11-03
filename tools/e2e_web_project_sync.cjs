@@ -209,6 +209,82 @@ async function main() {
     page.on('pageerror', (error) => pageErrors.push(error.message));
     await page.goto(pageOrigin, {waitUntil: 'networkidle'});
 
+    // Export is a real, bounded local recording. This synthetic clip never reaches the mock API.
+    assert.equal(await page.locator('#exportVideo').isDisabled(), true,
+      'Export stays disabled until a playable clip is imported.');
+    const exportFixture = fs.readFileSync(path.join(__dirname,
+      'fixtures', 'hotice-synthetic-source.webm'));
+    await page.locator('#clipsInput').setInputFiles({name: 'hotice-synthetic-source.webm',
+      mimeType: 'video/webm', buffer: exportFixture});
+    try {
+      await page.waitForFunction(() => Number(document.querySelector('#trimEnd')?.value) > 0.5);
+    } catch (error) {
+      const diagnostics = await page.evaluate(() => ({
+        status: document.querySelector('#editorStatus')?.textContent,
+        trimEnd: document.querySelector('#trimEnd')?.value,
+        videoDuration: document.querySelector('#previewVideo')?.duration,
+        readyState: document.querySelector('#previewVideo')?.readyState,
+      }));
+      throw new Error(error.message + ' · source diagnostics: ' + JSON.stringify(diagnostics));
+    }
+    assert.equal(await page.locator('#exportVideo').isDisabled(), false);
+    await page.locator('#exportResolution').selectOption('720');
+    await page.locator('#exportVideo').click();
+    await page.waitForFunction(() => {
+      const link = document.querySelector('#exportDownload');
+      return link && !link.hidden && link.href.startsWith('blob:');
+    }, null, {timeout: 20000});
+    assert.match(await page.locator('#editorStatus').textContent(), /has not been uploaded/i);
+    const exportedMedia = await page.evaluate(async () => {
+      const probe = document.createElement('video');
+      probe.preload = 'metadata';
+      probe.src = document.querySelector('#exportDownload').href;
+      await new Promise((resolve, reject) => {
+        probe.onloadedmetadata = resolve;
+        probe.onerror = () => reject(new Error('The exported file could not be played back.'));
+      });
+      const audio = new AudioContext();
+      const source = audio.createMediaElementSource(probe);
+      const analyser = audio.createAnalyser();
+      source.connect(analyser);
+      analyser.connect(audio.destination);
+      await audio.resume();
+      await probe.play();
+      const samples = new Float32Array(analyser.fftSize);
+      let rms = 0;
+      const deadline = performance.now() + 1200;
+      do {
+        analyser.getFloatTimeDomainData(samples);
+        rms = Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
+        if (rms > 0.005) break;
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      } while (performance.now() < deadline);
+      probe.pause();
+      await audio.close();
+      return {duration: probe.duration, width: probe.videoWidth,
+        height: probe.videoHeight, audioRms: rms};
+    });
+    assert(exportedMedia.duration > 0.5 && exportedMedia.width > 0 && exportedMedia.height > 0,
+      'The exported file must contain playable video frames.');
+    assert(exportedMedia.audioRms > 0.005,
+      'The exported file must preserve the synthetic source audio track.');
+    const [exportDownload] = await Promise.all([
+      page.waitForEvent('download'), page.locator('#exportDownload').click(),
+    ]);
+    assert.match(exportDownload.suggestedFilename(), /^hotice-video-.*\.(webm|mp4)$/);
+    const downloadedPath = await exportDownload.path();
+    assert(downloadedPath && fs.statSync(downloadedPath).size > 0,
+      'The browser download must contain the recorded video bytes.');
+    await page.locator('#exportVideo').click();
+    await page.waitForFunction(() => document.querySelector('#editorStatus')?.textContent
+      .startsWith('Exporting locally'));
+    await page.locator('#exportVideo').click();
+    await page.waitForFunction(() => document.querySelector('#editorStatus')?.textContent
+      .includes('Export canceled'));
+    assert.equal(await page.locator('#exportDownload').isVisible(), true,
+      'Canceling a replacement export must preserve the previous downloadable result.');
+    assert.equal(apiEvents.length, 0, 'Local export must not call the HOTICE API.');
+
     assert.match(await page.locator('#accountStatus').textContent(), /service configured/i);
     assert.equal(await page.locator('#cloudSyncConsent').isChecked(), false);
     assert.equal(await page.locator('#loadCloudProjects').isDisabled(), true);
@@ -334,6 +410,8 @@ async function main() {
     console.log(JSON.stringify({
       result: 'PASS',
       scenarios: [
+        'imported synthetic local video and audio, recorded a playable export, verified preserved sound, and downloaded it without API calls',
+        'canceled a replacement recording without losing the prior exported file',
         'local project save, reload and reopen',
         'media data rejected before upload',
         'authenticated mock generation quote, explicit submit, idempotency and status refresh',
