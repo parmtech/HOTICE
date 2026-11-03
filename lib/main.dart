@@ -103,7 +103,9 @@ class _HotIceAppState extends State<HotIceApp> {
     setState(() {
       accountUser = restored;
       accountSessionChecked = true;
-      if (restored != null) store.signInDemo(restored.email);
+      if (restored != null) {
+        store.signInAuthenticated(restored.id, restored.email);
+      }
     });
   }
 
@@ -111,7 +113,7 @@ class _HotIceAppState extends State<HotIceApp> {
     setState(() {
       accountUser = user;
       showLogin = false;
-      store.signInDemo(user.email);
+      store.signInAuthenticated(user.id, user.email);
     });
   }
 
@@ -178,7 +180,7 @@ class _HotIceAppState extends State<HotIceApp> {
             ? const Scaffold(body: Center(child: CircularProgressIndicator()))
             : store.signedIn
                 ? StudioShell(
-                    key: ValueKey(store.selectedAccount),
+                    key: ValueKey(store.selectedWorkspaceId),
                     store: store,
                     accountApi: accountApi,
                     authenticatedEmail: accountUser?.email,

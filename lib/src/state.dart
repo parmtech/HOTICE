@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -12,6 +13,31 @@ const int minimumPurchaseUsd = 10;
 bool isValidDemoEmail(String value) {
   final email = value.trim();
   return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
+}
+
+String _demoWorkspaceId(String email) => 'demo:${email.trim().toLowerCase()}';
+
+bool _isValidStableAccountId(String value) =>
+    value.isNotEmpty &&
+    value.trim() == value &&
+    value.length <= 128 &&
+    !RegExp(r'[\x00-\x1f\x7f]').hasMatch(value);
+
+String _accountWorkspaceId(String accountId) =>
+    'account:${base64Url.encode(utf8.encode(accountId)).replaceAll('=', '')}';
+
+String? _accountIdFromWorkspaceId(String workspaceId) {
+  if (!workspaceId.startsWith('account:')) return null;
+  final encoded = workspaceId.substring('account:'.length);
+  try {
+    final accountId = utf8.decode(base64Url.decode(base64Url.normalize(encoded)));
+    return _isValidStableAccountId(accountId) &&
+            _accountWorkspaceId(accountId) == workspaceId
+        ? accountId
+        : null;
+  } on FormatException {
+    return null;
+  }
 }
 
 /// New device projects use UUIDv4 IDs suitable for a future opt-in cloud API.
@@ -195,14 +221,17 @@ class HotIceStore extends ChangeNotifier {
   StudioAccent accent = StudioAccent.electric;
   StudioFont font = StudioFont.modern;
   String selectedAccount = 'creator@hotice.demo';
+  /// Local selection may outlive a session; it is never itself authentication.
+  String selectedWorkspaceId = 'demo:creator@hotice.demo';
+  String? authenticatedUserId;
   final List<String> accounts = ['creator@hotice.demo'];
 
   final Map<String, _DemoWorkspace> _workspaces = {
-    'creator@hotice.demo': _DemoWorkspace(seed: true),
+    'demo:creator@hotice.demo': _DemoWorkspace(seed: true),
   };
 
   _DemoWorkspace get _workspace =>
-      _workspaces.putIfAbsent(selectedAccount, () => _DemoWorkspace());
+      _workspaces.putIfAbsent(selectedWorkspaceId, () => _DemoWorkspace());
 
   int get demoCredits => _workspace.demoCredits;
   List<HotProject> get projects => _workspace.projects;
@@ -265,7 +294,7 @@ class HotIceStore extends ChangeNotifier {
     }
     final snapshot = exportLocalSnapshot();
     final workspaces = snapshot['workspaces'] as Map<String, dynamic>;
-    final source = workspaces[selectedAccount] as Map<String, dynamic>?;
+    final source = workspaces[selectedWorkspaceId] as Map<String, dynamic>?;
     if (source == null)
       throw StateError('The signed-in account has no local workspace.');
     final projects = (source['projects'] as List).cast<Map<String, dynamic>>();
@@ -481,14 +510,32 @@ class HotIceStore extends ChangeNotifier {
     final normalized = email.trim().toLowerCase();
     if (!isValidDemoEmail(normalized)) return;
     if (!accounts.contains(normalized)) accounts.add(normalized);
-    _workspaces.putIfAbsent(normalized, () => _DemoWorkspace());
+    selectedWorkspaceId = _demoWorkspaceId(normalized);
+    _workspaces.putIfAbsent(selectedWorkspaceId, () => _DemoWorkspace());
     selectedAccount = normalized;
+    authenticatedUserId = null;
+    signedIn = true;
+    notifyListeners();
+  }
+
+  /// Select local project data by immutable server subject, never by email.
+  /// The email remains presentation metadata and can change independently.
+  void signInAuthenticated(String accountId, String email) {
+    final normalized = email.trim().toLowerCase();
+    if (!_isValidStableAccountId(accountId) || !isValidDemoEmail(normalized)) {
+      throw ArgumentError('The authenticated account identity is invalid.');
+    }
+    authenticatedUserId = accountId;
+    selectedAccount = normalized;
+    selectedWorkspaceId = _accountWorkspaceId(accountId);
+    _workspaces.putIfAbsent(selectedWorkspaceId, () => _DemoWorkspace());
     signedIn = true;
     notifyListeners();
   }
 
   void signOut() {
     signedIn = false;
+    authenticatedUserId = null;
     notifyListeners();
   }
 
@@ -496,8 +543,10 @@ class HotIceStore extends ChangeNotifier {
     final normalized = email.trim().toLowerCase();
     if (!isValidDemoEmail(normalized)) return;
     if (!accounts.contains(normalized)) accounts.add(normalized);
-    _workspaces.putIfAbsent(normalized, () => _DemoWorkspace());
+    selectedWorkspaceId = _demoWorkspaceId(normalized);
+    _workspaces.putIfAbsent(selectedWorkspaceId, () => _DemoWorkspace());
     selectedAccount = normalized;
+    authenticatedUserId = null;
     notifyListeners();
   }
 
@@ -505,6 +554,8 @@ class HotIceStore extends ChangeNotifier {
     final normalized = email.trim().toLowerCase();
     if (!accounts.contains(normalized)) return;
     selectedAccount = normalized;
+    selectedWorkspaceId = _demoWorkspaceId(normalized);
+    authenticatedUserId = null;
     notifyListeners();
   }
 
@@ -748,8 +799,9 @@ class HotIceStore extends ChangeNotifier {
   /// project text and metadata only; never auth tokens, billing state, or raw
   /// camera/media bytes. Every user-authored draft field is round-tripped.
   Map<String, dynamic> exportLocalSnapshot() => {
-        'schema': 1,
+        'schema': 2,
         'selectedAccount': selectedAccount,
+        'selectedWorkspaceId': selectedWorkspaceId,
         'theme': themeMode.name,
         'accent': accent.name,
         'font': font.name,
@@ -837,10 +889,11 @@ class HotIceStore extends ChangeNotifier {
         },
       };
 
-  /// Restore only authenticated archive content. This never restores an
-  /// authenticated server session or grants cloud access.
+  /// Restore validated local archive content. This never restores a server
+  /// session or grants cloud access.
   void restoreLocalSnapshot(Map<String, dynamic> data) {
-    if (data['schema'] != 1 || data['workspaces'] is! Map) {
+    final schema = data['schema'];
+    if ((schema != 1 && schema != 2) || data['workspaces'] is! Map) {
       throw const FormatException('Unsupported HOTICE local project snapshot.');
     }
     Iterable<Map<String, dynamic>> rows(Object? value) sync* {
@@ -860,14 +913,29 @@ class HotIceStore extends ChangeNotifier {
     }
 
     final replacement = <String, _DemoWorkspace>{};
+    final replacementDemoAccounts = <String>[];
     final sources = data['workspaces'] as Map;
     if (sources.length > 30)
       throw const FormatException('Too many local workspaces.');
     for (final entry in sources.entries) {
-      if (entry.key is! String ||
-          !isValidDemoEmail(entry.key as String) ||
-          entry.value is! Map<String, dynamic>) continue;
-      final email = (entry.key as String).toLowerCase();
+      if (entry.key is! String || entry.value is! Map<String, dynamic>) continue;
+      final storedKey = entry.key as String;
+      final email = schema == 1
+          ? storedKey.toLowerCase()
+          : storedKey.startsWith('demo:')
+              ? storedKey.substring('demo:'.length).toLowerCase()
+              : null;
+      final accountId = schema == 2
+          ? _accountIdFromWorkspaceId(storedKey)
+          : null;
+      if (email == null && accountId == null) continue;
+      if (email != null && !isValidDemoEmail(email)) continue;
+      if (schema == 2 && storedKey.startsWith('account:') && accountId == null) {
+        continue;
+      }
+      final workspaceId = accountId == null
+          ? _demoWorkspaceId(email!)
+          : _accountWorkspaceId(accountId);
       final source = entry.value as Map<String, dynamic>;
       final target = _DemoWorkspace();
       final revisions = source['cloudRevisions'];
@@ -1051,7 +1119,10 @@ class HotIceStore extends ChangeNotifier {
           );
         }
       }
-      replacement[email] = target;
+      if (!replacement.containsKey(workspaceId)) {
+        replacement[workspaceId] = target;
+        if (email != null) replacementDemoAccounts.add(email);
+      }
     }
     if (replacement.isEmpty)
       throw const FormatException('Encrypted archive has no valid workspaces.');
@@ -1060,12 +1131,23 @@ class HotIceStore extends ChangeNotifier {
       ..addAll(replacement);
     accounts
       ..clear()
-      ..addAll(replacement.keys);
+      ..addAll(replacementDemoAccounts.toSet());
     final selected = data['selectedAccount'];
-    selectedAccount =
-        selected is String && replacement.containsKey(selected.toLowerCase())
-            ? selected.toLowerCase()
-            : accounts.first;
+    final selectedWorkspace = data['selectedWorkspaceId'];
+    final legacySelected = selected is String && isValidDemoEmail(selected)
+        ? _demoWorkspaceId(selected)
+        : null;
+    selectedWorkspaceId = selectedWorkspace is String &&
+            replacement.containsKey(selectedWorkspace)
+        ? selectedWorkspace
+        : legacySelected != null && replacement.containsKey(legacySelected)
+            ? legacySelected
+            : replacement.keys.first;
+    selectedAccount = selected is String && isValidDemoEmail(selected)
+        ? selected.trim().toLowerCase()
+        : accounts.isNotEmpty
+            ? accounts.first
+            : '';
     themeMode = ThemeMode.values.firstWhere(
       (v) => v.name == data['theme'],
       orElse: () => ThemeMode.dark,
@@ -1079,6 +1161,7 @@ class HotIceStore extends ChangeNotifier {
       orElse: () => StudioFont.modern,
     );
     signedIn = false;
+    authenticatedUserId = null;
     notifyListeners();
   }
 

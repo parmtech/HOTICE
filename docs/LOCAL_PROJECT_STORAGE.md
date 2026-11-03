@@ -7,6 +7,18 @@ platform keystore/keychain. The archive uses a versioned JSON envelope and
 keeps the previous authenticated snapshot as a recovery copy. Writes are
 serialized so rapid edits cannot reorder the saved snapshots.
 
+Snapshot schema 2 uses separate local keys for demo profiles and authenticated
+accounts. Authenticated workspace keys derive from the server's immutable user
+ID; the current email is only a display label. A later email change therefore
+continues to select the same local projects. The ID is stored only inside the
+authenticated encrypted archive, and restoring that archive never restores an
+authenticated session or grants cloud access.
+
+Schema 1 snapshots used email keys. Migration retains those workspaces as local
+demo profiles and does not silently claim or merge them into a server account.
+Their projects remain available by switching to the matching local profile.
+There is no automatic project upload or account transfer during migration.
+
 The snapshot contains project titles and dates, actor names and identity notes,
 scene prompts and settings, reference-file metadata, storyboard text, and local
 appearance settings. It does not contain API credentials, server session
@@ -33,7 +45,8 @@ Run the archive-focused suite with:
 flutter test test/local_store_test.dart
 ```
 
-The tests cover encrypted restart restore, all persisted scene draft settings,
-per-workspace isolation, recovery from a damaged primary file, and fail-closed
-behavior when the device key is wrong. Physical-device keystore backup and
-restore acceptance remains a release gate.
+The tests cover encrypted restart restore, stable account-ID rebinding after an
+email change, encrypted schema 1 migration, demo/account isolation, all
+persisted scene draft settings, recovery from a damaged primary file, and
+fail-closed behavior when the device key is wrong. Physical-device keystore
+backup and restore acceptance remains a release gate.

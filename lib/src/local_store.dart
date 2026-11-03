@@ -94,7 +94,8 @@ class HotIceLocalArchive {
           throw const FormatException('Archive exceeds local data limit.');
         }
         final data = jsonDecode(utf8.decode(clear));
-        if (data is! Map<String, dynamic> || data['schema'] != 1) {
+        if (data is! Map<String, dynamic> ||
+            (data['schema'] != 1 && data['schema'] != 2)) {
           throw const FormatException('Unsupported project archive schema.');
         }
         if (candidate.path == _backup.path) {

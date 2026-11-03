@@ -6,6 +6,66 @@ import 'package:hotice/src/state.dart';
 import 'package:hotice/src/video_models.dart';
 
 void main() {
+  test('encrypted schema 1 archive remains readable during migration', () async {
+    final dir = await Directory.systemTemp.createTemp('hotice-legacy-archive-');
+    addTearDown(() async {
+      if (await dir.exists()) await dir.delete(recursive: true);
+    });
+    final archive = HotIceLocalArchive(
+      directory: dir,
+      keyLoader: () async => List<int>.filled(32, 31),
+    );
+    archive.enqueue({
+      'schema': 1,
+      'selectedAccount': 'legacy@example.com',
+      'workspaces': {
+        'legacy@example.com': {
+          'projects': [
+            {
+              'id': 'legacy-project-id',
+              'title': 'Keep my old project',
+              'createdAt': '2026-10-01T00:00:00.000',
+            },
+          ],
+        },
+      },
+    });
+    await archive.flush();
+    final snapshot = await archive.restore();
+    expect(snapshot?['schema'], 1);
+    final store = HotIceStore()..restoreLocalSnapshot(snapshot!);
+    expect(store.projects.single.id, 'legacy-project-id');
+    expect(store.exportLocalSnapshot()['schema'], 2);
+    store.dispose();
+  });
+
+  test('encrypted archive follows a stable account ID after email change', () async {
+    final dir = await Directory.systemTemp.createTemp('hotice-account-id-');
+    addTearDown(() async {
+      if (await dir.exists()) await dir.delete(recursive: true);
+    });
+    final archive = HotIceLocalArchive(
+      directory: dir,
+      keyLoader: () async => List<int>.filled(32, 73),
+    );
+    final first = HotIceStore()
+      ..signInAuthenticated('immutable-subject-7', 'old@example.com');
+    final id = first.addProject('Survives email change');
+    archive.enqueue(first.exportLocalSnapshot());
+    await archive.flush();
+
+    final restoredData = await archive.restore();
+    expect(restoredData, isNotNull);
+    final restored = HotIceStore()..restoreLocalSnapshot(restoredData!);
+    expect(restored.signedIn, isFalse);
+    restored.signInAuthenticated('immutable-subject-7', 'new@example.com');
+    expect(restored.projects.single.id, id);
+    restored.signInAuthenticated('another-subject', 'new@example.com');
+    expect(restored.projects, isEmpty);
+    first.dispose();
+    restored.dispose();
+  });
+
   test('encrypted archive persists projects and draft workspaces across restarts',
       () async {
     final dir = await Directory.systemTemp.createTemp('hotice-local-test-');
