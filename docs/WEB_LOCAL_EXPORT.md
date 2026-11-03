@@ -20,6 +20,6 @@ The export uses the first playable clip's aspect ratio. Other clips are scaled t
 
 ## Verification
 
-`tools/e2e_web_project_sync.cjs` uses a checked-in synthetic color-pattern WebM fixture with a generated 440 Hz tone. The Chromium test imports it, waits for decoded duration, records and downloads a local export, verifies playable video and non-silent audio, cancels a later export without losing the completed file, and asserts that no HOTICE API request occurred during either export.
+`tools/e2e_web_project_sync.cjs` uses a checked-in synthetic color-pattern WebM fixture with a generated 440 Hz tone. The Chromium test imports it twice, trims and speeds up the first clip, exports both in sequence at 720p, verifies playable video and non-silent output audio, downloads the result, cancels a later export without losing the completed file, and asserts that no HOTICE API request occurred during either export.
 
 This proves the exercised Chromium path only. It does not prove Safari/WebKit, Firefox, iOS/Android browser support, large-media performance, hardware encoder availability, professional mastering quality, cloud export, or server-side rendering. Keep production export claims scoped to browsers/devices that pass the release matrix.

@@ -214,8 +214,10 @@ async function main() {
       'Export stays disabled until a playable clip is imported.');
     const exportFixture = fs.readFileSync(path.join(__dirname,
       'fixtures', 'hotice-synthetic-source.webm'));
-    await page.locator('#clipsInput').setInputFiles({name: 'hotice-synthetic-source.webm',
-      mimeType: 'video/webm', buffer: exportFixture});
+    await page.locator('#clipsInput').setInputFiles([
+      {name: 'hotice-synthetic-first.webm', mimeType: 'video/webm', buffer: exportFixture},
+      {name: 'hotice-synthetic-second.webm', mimeType: 'video/webm', buffer: exportFixture},
+    ]);
     try {
       await page.waitForFunction(() => Number(document.querySelector('#trimEnd')?.value) > 0.5);
     } catch (error) {
@@ -227,6 +229,15 @@ async function main() {
       }));
       throw new Error(error.message + ' · source diagnostics: ' + JSON.stringify(diagnostics));
     }
+    assert.equal(await page.locator('#clipTimeline [role="listitem"]').count(), 2,
+      'The export sequence must include both imported clips.');
+    await page.locator('#trimStart').fill('0.2');
+    await page.locator('#trimEnd').fill('1.8');
+    await page.locator('#clipSpeed').selectOption('1.5');
+    await page.locator('#applyTrim').click();
+    await page.locator('#clipTimeline [role="listitem"]').nth(1)
+      .getByRole('button', {name: 'Select'}).click();
+    await page.waitForFunction(() => Number(document.querySelector('#trimEnd')?.value) > 0.5);
     assert.equal(await page.locator('#exportVideo').isDisabled(), false);
     await page.locator('#exportResolution').selectOption('720');
     await page.locator('#exportVideo').click();
@@ -264,8 +275,8 @@ async function main() {
       return {duration: probe.duration, width: probe.videoWidth,
         height: probe.videoHeight, audioRms: rms};
     });
-    assert(exportedMedia.duration > 0.5 && exportedMedia.width > 0 && exportedMedia.height > 0,
-      'The exported file must contain playable video frames.');
+    assert(exportedMedia.duration > 2.5 && exportedMedia.width === 1280 && exportedMedia.height === 720,
+      'The exported file must contain both trimmed clips at the selected 720p output size.');
     assert(exportedMedia.audioRms > 0.005,
       'The exported file must preserve the synthetic source audio track.');
     const [exportDownload] = await Promise.all([
@@ -410,7 +421,7 @@ async function main() {
     console.log(JSON.stringify({
       result: 'PASS',
       scenarios: [
-        'imported synthetic local video and audio, recorded a playable export, verified preserved sound, and downloaded it without API calls',
+        'trimmed and sequenced two synthetic local video/audio clips into a playable 720p export with preserved sound and no API calls',
         'canceled a replacement recording without losing the prior exported file',
         'local project save, reload and reopen',
         'media data rejected before upload',
