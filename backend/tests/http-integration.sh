@@ -78,6 +78,8 @@ echo "$scanner_error_upload" | jq -e '.scanStatus == "pending"' >/dev/null
 for pending_file in "$file" "$infected_file" "$scanner_error_file"; do
   status=$(curl -sS -o /dev/null -w '%{http_code}' -H "$AUTH" "$BASE/v1/files/$pending_file")
   test "$status" = '423'
+  status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H "$AUTH" "$BASE/v1/files/$pending_file/access-grants")
+  test "$status" = '423'
 done
 set +e
 scan_result=$(php backend/bin/scan-media.php 20)
@@ -112,13 +114,67 @@ curl -fsS -H "$AUTH" "$BASE/v1/projects/$id" | jq -e --arg clean "$file" --arg i
 ' >/dev/null
 status=$(curl -sS -o /dev/null -w '%{http_code}' -H "$AUTH" "$BASE/v1/files/$infected_file")
 test "$status" = '423'
+status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H "$AUTH" "$BASE/v1/files/$infected_file/access-grants")
+test "$status" = '423'
 status=$(curl -sS -o /dev/null -w '%{http_code}' -H "$AUTH" "$BASE/v1/files/$scanner_error_file")
 test "$status" = '423'
 other_file='44444444-4444-4444-8444-444444444444'
 status=$(curl -sS -o /dev/null -w '%{http_code}' -X PUT -H "$AUTH" -H 'Content-Type: application/octet-stream' --data-binary @/tmp/hotice-ci-test.png "$BASE/v1/projects/$id/files/$other_file")
 test "$status" = '413'
+grant=$(curl -fsS -X POST -H "$AUTH" "$BASE/v1/files/$file/access-grants")
+media_token=$(echo "$grant" | jq -er '.accessToken | select(test("^[a-f0-9]{64}$"))')
+media_path=$(echo "$grant" | jq -er --arg id "$file" '.contentPath | select(. == ("/v1/media/" + $id + "/content"))')
+echo "$grant" | jq -e '.tokenType == "Hotice-Media" and (.expiresAt | endswith("Z"))' >/dev/null
+curl -fsS -H "Authorization: Hotice-Media $media_token" "$BASE$media_path" -o /tmp/hotice-ci-granted-download.png
+cmp /tmp/hotice-ci-test.png /tmp/hotice-ci-granted-download.png
+status=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE$media_path")
+test "$status" = '401'
+wrong_media=$(printf '%s' '77777777-7777-4777-8777-777777777777')
+status=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Hotice-Media $media_token" "$BASE/v1/media/$wrong_media/content")
+test "$status" = '401'
+# Grants are bound to the issuing session; revoking that session denies future reads.
+second_token=$(curl -fsS -H 'Content-Type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" "$BASE/v1/auth/login" | jq -er '.accessToken')
+SECOND_AUTH="Authorization: Bearer $second_token"
+revoked_grant=$(curl -fsS -X POST -H "$SECOND_AUTH" "$BASE/v1/files/$file/access-grants")
+revoked_media_token=$(echo "$revoked_grant" | jq -er '.accessToken')
+curl -fsS -X POST -H "$SECOND_AUTH" "$BASE/v1/auth/logout" >/dev/null
+status=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Hotice-Media $revoked_media_token" "$BASE/v1/media/$file/content")
+test "$status" = '401'
+php -r '
+require_once "backend/src/App.php";
+$db = (new Hotice\App(require "backend/config.php"))->database();
+$q = $db->prepare("SELECT event_code,COUNT(*) AS amount FROM media_access_audit WHERE file_id=? GROUP BY event_code");
+$q->execute([$argv[1]]);
+$events = array_column($q->fetchAll(), "amount", "event_code");
+if ((int)($events["grant_issued"] ?? 0) !== 2 || (int)($events["content_served"] ?? 0) !== 1) exit(1);
+$q = $db->prepare("SELECT access_count FROM media_access_grants WHERE token_sha256=?");
+$q->execute([hash("sha256", $argv[2])]);
+if ((int)$q->fetchColumn() !== 1) exit(1);
+' "$file" "$media_token"
 curl -fsS -H "$AUTH" "$BASE/v1/files/$file" -o /tmp/hotice-ci-download.png
 cmp /tmp/hotice-ci-test.png /tmp/hotice-ci-download.png
+old_audit_request=$(php -r 'echo bin2hex(random_bytes(8));')
+php -r '
+require_once "backend/src/App.php";
+$db = (new Hotice\App(require "backend/config.php"))->database();
+$db->prepare("UPDATE media_access_grants SET expires_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 2 DAY) WHERE token_sha256=?")
+  ->execute([hash("sha256", $argv[1])]);
+$db->prepare("INSERT INTO media_access_audit (actor_user_id,file_id,event_code,request_id,occurred_at) VALUES (?,?,\x27direct_download\x27,?,DATE_SUB(UTC_TIMESTAMP(),INTERVAL 91 DAY))")
+  ->execute([$argv[2], $argv[3], $argv[4]]);
+' "$media_token" "$(php -r 'require_once "backend/src/App.php"; $db=(new Hotice\App(require "backend/config.php"))->database(); $q=$db->prepare("SELECT id FROM users WHERE email=?"); $q->execute([$argv[1]]); echo $q->fetchColumn();' "$EMAIL")" "$file" "$old_audit_request"
+status=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Hotice-Media $media_token" "$BASE/v1/media/$file/content")
+test "$status" = '401'
+php backend/bin/purge-media-access.php 1 1 | jq -e '.expiredGrantsPurged == 1 and .oldAuditEventsPurged == 1' >/dev/null
+php -r '
+require_once "backend/src/App.php";
+$db = (new Hotice\App(require "backend/config.php"))->database();
+$q = $db->prepare("SELECT COUNT(*) FROM media_access_grants WHERE token_sha256=?");
+$q->execute([hash("sha256", $argv[1])]);
+if ((int)$q->fetchColumn() !== 0) exit(1);
+$q = $db->prepare("SELECT COUNT(*) FROM media_access_audit WHERE request_id=?");
+$q->execute([$argv[2]]);
+if ((int)$q->fetchColumn() !== 0) exit(1);
+' "$media_token" "$old_audit_request"
 
 # A *different entitled account* must not access, overwrite, erase or
 # enumerate the first account's cloud data; free-vs-paid checks are insufficient.
@@ -132,6 +188,8 @@ test "$status" = '404'
 status=$(curl -sS -o /dev/null -w '%{http_code}' -X PUT -H "$OTHER_AUTH" -H 'Content-Type: application/json' -d '{"title":"Stolen title","expectedRevision":1,"document":{"stolen":true}}' "$BASE/v1/projects/$id")
 test "$status" = '404'
 status=$(curl -sS -o /dev/null -w '%{http_code}' -H "$OTHER_AUTH" "$BASE/v1/files/$file")
+test "$status" = '404'
+status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H "$OTHER_AUTH" "$BASE/v1/files/$file/access-grants")
 test "$status" = '404'
 status=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE -H "$OTHER_AUTH" "$BASE/v1/projects/$id")
 test "$status" = '404'

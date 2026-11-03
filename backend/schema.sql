@@ -272,6 +272,45 @@ CREATE TABLE IF NOT EXISTS cloud_files (
   CONSTRAINT fk_files_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Short-lived media grants are bound to one authenticated user session and file.
+-- Only a digest is stored; revoking a session immediately invalidates its grants.
+CREATE TABLE IF NOT EXISTS media_access_grants (
+  id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  token_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  user_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  session_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  file_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME NOT NULL,
+  first_access_at DATETIME NULL,
+  last_access_at DATETIME NULL,
+  access_count INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_media_grant_token (token_sha256),
+  KEY ix_media_grant_expiry (expires_at,id),
+  KEY ix_media_grant_user_created (user_id,created_at),
+  CONSTRAINT fk_media_grant_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_media_grant_session FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+  CONSTRAINT fk_media_grant_file FOREIGN KEY (file_id) REFERENCES cloud_files(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Minimal 90-day operational audit; no IP address, user agent or token material.
+CREATE TABLE IF NOT EXISTS media_access_audit (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  actor_user_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  file_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  grant_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  event_code ENUM('grant_issued','content_served','direct_download') NOT NULL,
+  request_id CHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY ix_media_audit_time (occurred_at,id),
+  KEY ix_media_audit_actor (actor_user_id,occurred_at),
+  CONSTRAINT fk_media_audit_user FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_media_audit_file FOREIGN KEY (file_id) REFERENCES cloud_files(id) ON DELETE SET NULL,
+  CONSTRAINT fk_media_audit_grant FOREIGN KEY (grant_id) REFERENCES media_access_grants(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Durable private-file deletion queue. Rows contain only unguessable storage
 -- names (no account ID/email) so account deletion can finish even if PHP stops
 -- after its database transaction and before unlinking all private bytes.
