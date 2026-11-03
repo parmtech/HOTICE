@@ -2,7 +2,7 @@
 
 **Date:** 28 October 2026
 **Feature branch:** `feat/avatar-reference-persistence` (local integration of PR #32 and PR #79)
-**Status:** Offline planner + Android/iOS live guided 2D camera capture, encrypted image blobs, and encrypted device-local archive metadata implemented in source; NOT a 3D reconstruction, liveness/biometric identity verification, cross-device media backup, or connected AI generation adapter. Live camera behaviour awaits real-device field testing.
+**Status:** Offline planner + Android/iOS live guided 2D camera capture, encrypted image blobs, encrypted device-local archive metadata, and user-managed encrypted actor export/restore implemented in source; NOT a 3D reconstruction, liveness/biometric identity verification, cloud media sync, or connected AI generation adapter. Live camera and file-picker behaviour await real-device field testing.
 
 ## Live camera capture added 28 October 2026
 
@@ -23,6 +23,7 @@
 
 - `lib/src/smart_references.dart`: typed `AvatarReference`, `AvatarAssetPack`, `ReferenceModelCapability`, `SmartReferencePlanner`, and immutable selection output.
 - Explicit face-reference image import (JPG/PNG/WebP under 15 MB) from Avatar Studio, manually tagged front, 45°, profile, up and down.
+- User-controlled password-encrypted actor backup export/restore (`.hoticeactor`) preserves actor notes, image MIME and face-view labels. The versioned AES-256-GCM envelope derives its key with PBKDF2-HMAC-SHA256 (180,000 rounds), uses a fresh salt/nonce, and validates photo signatures/count/size before restore. Passwords and device paths are not included. Restore stages ciphertext in the device vault before adding actor metadata as one store event and removes staged ciphertext on failure. Plain photos remain in memory during restore; no plaintext staging file is written.
 - Avatar reference metadata is saved with the encrypted local workspace archive and scene image metadata is project-scoped. Archive restore validates UUID ownership and vault path suffix before reattaching records. Avatar rename migrates reference ownership; deleting an avatar or project removes the metadata in that workspace.
 - Normal Video composer: select Actor, import location/prop/style photos, auto-plan from camera direction in one free-text prompt, manual selection, pin/clear references and inspect preview/warnings.
 - The planner prefers scene-compatible angle, normally at most two automatic avatar images, then leaves room for location/objects.
@@ -33,7 +34,7 @@
 
 ## Important limitations
 
-The avatar reference index and ownership metadata are persisted in the encrypted local project archive with workspace and project records. The photo ciphertext is separately held in private app storage under an OS secure-storage device key; moving the archive/media to another device does not provide recovery. There is no user-controlled recovery/export key, cross-device backup, or cryptographic per-account key separation. Manually imported photos are **not** quality-assessed or converted to 3D. The live scanner uses ML Kit face detection and open-eye checks, but this is neither biometric identity validation nor anti-spoof liveness detection. Do not label either capture method a 3D mesh scan.
+The avatar reference index and ownership metadata are persisted in the encrypted local project archive with workspace and project records. The photo ciphertext is separately held in private app storage under an OS secure-storage device key. The `.hoticeactor` file is an optional user-managed encrypted export that can be restored on supported Android/iOS installs; HOTICE does not store the password or provide cloud backup. Losing both the original device key and the backup password makes that copy unrecoverable. There is no cryptographic per-account key separation. Portable restore has local unit coverage but still needs physical-device QA (picker/save-dialog behavior, interruption, low storage and account switching). Manually imported photos are **not** quality-assessed or converted to 3D. The live scanner uses ML Kit face detection and open-eye checks, but this is neither biometric identity validation nor anti-spoof liveness detection. Do not label either capture method a 3D mesh scan.
 
 Four image slots in `ReferenceModelCapability.demo` are a **UI simulation**, not an official provider capability. No model adapter should read the demo limits as true. Neither the backend nor real generation endpoint currently accepts these reference plans. The planner's `canSubmit` is false for unverified profiles. No vendor input is silently inferred from the extension.
 
@@ -41,8 +42,8 @@ A production implementation must separately verify the server's account authoriz
 
 ## Next implementation sequence
 
-1. Validate the implemented guided camera capture on physical Android/iOS devices (native orientation, ML Kit yaw, eye confidence, lighting, autofocus, repeated sessions, permission rejection, foreground/background, temporary-file deletion); calibrate pose/blur heuristics. Camera2 is preferred on Android for NV21 compatibility.
-2. Add explicit key-loss recovery/export controls, deletion and retention options, and cryptographic per-account key separation. Current encryption uses an OS-held device key; archive workspace isolation is logical, not cryptographic per-account separation.
+1. Validate guided capture and portable actor backup on physical Android/iOS devices (native orientation, ML Kit yaw, eye confidence, lighting, autofocus, repeated sessions, picker/save-dialog behavior, interruption, permission rejection, foreground/background, temporary-file deletion); calibrate pose/blur heuristics. Camera2 is preferred on Android for NV21 compatibility.
+2. Add key-loss recovery/deletion/retention options and cryptographic per-account key separation. Current encryption uses an OS-held device key; archive workspace isolation is logical, not cryptographic per-account separation.
 3. Multi-view reconstruction pipeline with transparent confidence and RGB-photo fallback; actual GLB/GLTF export and photorealistic side render derivation.
 4. Signed, least-privilege optional paid-cloud sync through Namecheap cPanel PHP/MySQL backend; secrets always server-side, opt-in for facial data.
 5. Verified/versioned per-provider catalog served by backend with reference type/size/count semantics, server-side attachment packer and safe transforms. No fake 3D handling.

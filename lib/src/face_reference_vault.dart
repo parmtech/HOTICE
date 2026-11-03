@@ -162,13 +162,6 @@ class FaceReferenceVault {
     File source, {
     required String referenceId,
   }) async {
-    final destination = _fileFor(referenceId);
-    if (await FileSystemEntity.type(destination.path, followLinks: false) !=
-        FileSystemEntityType.notFound) {
-      throw const FaceReferenceVaultException(
-        'A face photo already exists for this reference ID.',
-      );
-    }
     final sourceLength = await source.length();
     if (sourceLength <= 0 || sourceLength > _maxPhotoBytes) {
       throw const FaceReferenceVaultException(
@@ -176,9 +169,28 @@ class FaceReferenceVault {
       );
     }
     final clear = await source.readAsBytes();
-    if (clear.isEmpty ||
-        clear.length != sourceLength ||
-        clear.length > _maxPhotoBytes) {
+    if (clear.isEmpty || clear.length != sourceLength) {
+      throw const FaceReferenceVaultException(
+        'Choose a non-empty image no larger than 15 MiB.',
+      );
+    }
+    return encryptPhotoBytes(clear, referenceId: referenceId);
+  }
+
+  /// Encrypts validated in-memory bytes without writing a plaintext staging
+  /// file. Portable actor recovery uses this path for decrypted archive data.
+  Future<StoredFaceReference> encryptPhotoBytes(
+    List<int> clear, {
+    required String referenceId,
+  }) async {
+    final destination = _fileFor(referenceId);
+    if (await FileSystemEntity.type(destination.path, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      throw const FaceReferenceVaultException(
+        'A face photo already exists for this reference ID.',
+      );
+    }
+    if (clear.isEmpty || clear.length > _maxPhotoBytes) {
       throw const FaceReferenceVaultException(
         'Choose a non-empty image no larger than 15 MiB.',
       );

@@ -8,6 +8,7 @@ import 'live_face_capture.dart';
 import 'face_capture_quality.dart';
 import 'face_capture_storage.dart';
 import 'face_reference_vault.dart';
+import 'avatar_reference_backup.dart';
 import 'dart:io';
 import 'avatar_identity.dart';
 import 'design.dart';
@@ -32,6 +33,228 @@ class _AvatarsPageState extends State<AvatarsPage> {
   bool showLiveCapture = false;
   String? captureTarget;
   int poseIndex = 0;
+
+  Future<String?> _askBackupPassword({bool confirmation = false}) async {
+    final first = TextEditingController();
+    final second = TextEditingController();
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(
+              confirmation ? 'Protect actor backup' : 'Unlock actor backup'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: first,
+                obscureText: true,
+                autofocus: true,
+                decoration: const InputDecoration(
+                    labelText: 'Backup password (12+ characters)'),
+              ),
+              if (confirmation)
+                TextField(
+                  controller: second,
+                  obscureText: true,
+                  decoration:
+                      const InputDecoration(labelText: 'Confirm password'),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                if (first.text.length < 12 ||
+                    first.text.length > 1024 ||
+                    (confirmation && first.text != second.text)) return;
+                Navigator.pop(ctx, first.text);
+              },
+              child: Text(confirmation ? 'Create backup' : 'Unlock'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      first.dispose();
+      second.dispose();
+    }
+  }
+
+  void _backupMessage(String message) {
+    if (mounted)
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> exportActorBackup(StudioAvatar avatar) async {
+    final workspace = widget.store.selectedWorkspaceId;
+    final password = await _askBackupPassword(confirmation: true);
+    if (!mounted || password == null) return;
+    try {
+      if (workspace != widget.store.selectedWorkspaceId) {
+        throw const AvatarReferenceBackupException(
+            'The active account changed. Start again from the intended account.');
+      }
+      final pack = widget.store.avatarPackFor(avatar.name);
+      if (pack.assets.isEmpty) {
+        throw const AvatarReferenceBackupException(
+            'Add at least one face photo before creating a portable backup.');
+      }
+      if (!Platform.isAndroid && !Platform.isIOS) {
+        throw const AvatarReferenceBackupException(
+            'Encrypted face-photo storage is currently available on Android and iOS.');
+      }
+      final vault = await FaceReferenceVault.openOnDevice();
+      final photos = <AvatarBackupPhoto>[];
+      for (final reference in pack.assets) {
+        if (reference.view == null) {
+          throw const AvatarReferenceBackupException(
+              'Every photo needs a face-view label before backup.');
+        }
+        photos.add(AvatarBackupPhoto(
+          view: reference.view!,
+          mimeType: reference.mimeType,
+          bytes: await vault.decryptPhoto(reference.localPath),
+        ));
+      }
+      if (workspace != widget.store.selectedWorkspaceId) {
+        throw const AvatarReferenceBackupException(
+            'The active account changed during backup. Start again.');
+      }
+      final bytes = await AvatarReferenceBackupCodec().encode(
+        AvatarReferenceBackup(
+          name: avatar.name,
+          style: avatar.style,
+          identityNotes: avatar.identityNotes,
+          photos: photos,
+        ),
+        password: password,
+      );
+      final saved = await FilePicker.saveFile(
+        fileName:
+            '${avatar.name.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_')}.hoticeactor',
+        bytes: bytes,
+        mimeType: 'application/vnd.hotice.actor-backup',
+        dialogTitle: 'Save encrypted HOTICE actor backup',
+      );
+      if (saved != null)
+        _backupMessage(
+            'Encrypted actor backup saved. Keep the password separately; HOTICE cannot recover it.');
+    } catch (error) {
+      _backupMessage(error is AvatarReferenceBackupException
+          ? error.message
+          : 'Actor backup could not be created. Check the encrypted photo vault and try again.');
+    }
+  }
+
+  Future<void> importActorBackup() async {
+    final workspace = widget.store.selectedWorkspaceId;
+    final consent = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Restore an actor backup?'),
+        content: const Text(
+            'The password-protected file contains sensitive face photos. HOTICE will decrypt it locally, encrypt each photo with this device key, and add the actor to the active local workspace. Nothing is uploaded. The backup password is not saved.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Choose backup')),
+        ],
+      ),
+    );
+    if (!mounted || consent != true) return;
+    try {
+      final selected = await FilePicker.pickFile(
+        type: FileType.custom,
+        allowedExtensions: const ['hoticeactor'],
+        dialogTitle: 'Choose encrypted HOTICE actor backup',
+      );
+      if (selected == null) return;
+      final length = selected.lengthSync() ?? await selected.length();
+      if (length == null ||
+          length >
+              AvatarReferenceBackupCodec.maxTotalPhotoBytes * 2 + 1024 * 1024) {
+        throw const AvatarReferenceBackupException(
+            'The backup file exceeds the supported size.');
+      }
+      final password = await _askBackupPassword();
+      if (!mounted || password == null) return;
+      final decoded = await AvatarReferenceBackupCodec().decode(
+        await selected.readAsBytes(),
+        password: password,
+      );
+      if (workspace != widget.store.selectedWorkspaceId) {
+        throw const AvatarReferenceBackupException(
+            'The active account changed. Start again from the intended account.');
+      }
+      if (widget.store.avatars.any((avatar) => avatar.name == decoded.name)) {
+        throw const AvatarReferenceBackupException(
+            'An actor with this name already exists in the active workspace. Rename or remove it before restoring.');
+      }
+      if (!Platform.isAndroid && !Platform.isIOS) {
+        throw const AvatarReferenceBackupException(
+            'Encrypted face-photo storage is currently available on Android and iOS.');
+      }
+      final vault = await FaceReferenceVault.openOnDevice();
+      final createdPaths = <String>[];
+      final references = <AvatarReference>[];
+      try {
+        for (final photo in decoded.photos) {
+          if (workspace != widget.store.selectedWorkspaceId) {
+            throw const AvatarReferenceBackupException(
+                'The active account changed during restore.');
+          }
+          final id = createLocalProjectId();
+          final stored = await vault.encryptPhotoBytes(
+            photo.bytes,
+            referenceId: id,
+          );
+          createdPaths.add(stored.path);
+          references.add(AvatarReference(
+            id: stored.id,
+            ownerName: decoded.name,
+            role: ReferenceRole.avatar,
+            format: ReferenceFormat.image,
+            mimeType: stored.mimeType,
+            localPath: stored.path,
+            view: photo.view,
+            ownedTemporaryFile: true,
+          ));
+        }
+        if (workspace != widget.store.selectedWorkspaceId ||
+            !widget.store.addAvatarWithReferences(
+              StudioAvatar(decoded.name, decoded.style,
+                  identityNotes: decoded.identityNotes),
+              references,
+            )) {
+          throw const AvatarReferenceBackupException(
+              'The actor could not be added to the active workspace.');
+        }
+      } catch (_) {
+        for (final path in createdPaths) {
+          try {
+            await vault.deletePhoto(path);
+          } catch (_) {}
+        }
+        rethrow;
+      }
+      _backupMessage(
+          'Actor restored to this device. Face photos are encrypted locally; no 3D scan is claimed.');
+    } catch (error) {
+      _backupMessage(error is AvatarReferenceBackupException
+          ? error.message
+          : 'Actor backup could not be restored. Check the file and password, then try again.');
+    }
+  }
+
+
 
   @override
   void initState() {
@@ -353,6 +576,12 @@ class _AvatarsPageState extends State<AvatarsPage> {
                 Text('Saved face references: '
                     '${widget.store.avatarPackFor(avatar.name).assets.length} '
                     '(encrypted on this device)'),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () => exportActorBackup(avatar),
+                  icon: const Icon(Icons.lock_outline),
+                  label: const Text('Create encrypted portable backup'),
+                ),
                 for (final photo in widget.store.avatarPackFor(avatar.name).assets)
                   ListTile(
                     dense: true,
@@ -402,6 +631,15 @@ class _AvatarsPageState extends State<AvatarsPage> {
             'Beta: live guided multi-angle 2D capture is available on Android/iOS with consent. Accepted face photos use device-key AES-GCM encryption; reference records persist in the encrypted device-local project archive. Media is not backed up or synced. No 3D reconstruction or identity verification.'
           ),
           const SizedBox(height: 20),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: importActorBackup,
+              icon: const Icon(Icons.restore_rounded),
+              label: const Text('Restore actor backup'),
+            ),
+          ),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 10,
             runSpacing: 10,

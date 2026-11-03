@@ -335,6 +335,52 @@ void main() {
     expect(store.avatarPackFor('Hero').assets, isEmpty);
     store.dispose();
   });
+
+  test('restored actor metadata and references enter the store as one event',
+      () {
+    final store = HotIceStore();
+    addTearDown(store.dispose);
+    var notifications = 0;
+    store.addListener(() => notifications++);
+    final ref = AvatarReference(
+      id: '1dbd4a72-bfde-4330-8a21-5f01d9be4e61',
+      ownerName: 'Recovered',
+      role: ReferenceRole.avatar,
+      format: ReferenceFormat.image,
+      mimeType: 'image/jpeg',
+      localPath: '/vault/photo.aes',
+      view: FaceView.left90,
+      ownedTemporaryFile: true,
+    );
+
+    expect(
+      store.addAvatarWithReferences(
+        const StudioAvatar('Recovered', 'Cinematic',
+            identityNotes: 'Blue coat'),
+        [ref],
+      ),
+      isTrue,
+    );
+    expect(notifications, 1);
+    expect(
+      store.avatars
+          .firstWhere((avatar) => avatar.name == 'Recovered')
+          .identityNotes,
+      'Blue coat',
+    );
+    expect(
+        store.avatarPackFor('Recovered').assets.single.view, FaceView.left90);
+    expect(
+      store.addAvatarWithReferences(
+        const StudioAvatar('Recovered', 'Cinematic'),
+        [ref],
+      ),
+      isFalse,
+    );
+    expect(notifications, 1);
+    expect(store.avatars.where((avatar) => avatar.name == 'Recovered'),
+        hasLength(1));
+  });
   test('corrupt primary falls back to previous authenticated backup', () async {
     final dir = await Directory.systemTemp.createTemp('hotice-recovery-');
     addTearDown(() async {
