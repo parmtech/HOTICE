@@ -4,7 +4,7 @@
 
 **Cinematic AI Video Studio — Flutter UI foundation**
 
-HOTICE is a premium multi-AI video creation workspace. This repository contains the **first-stage, functional UI prototype**: navigation, forms, local project drafts, account profile switching, avatar presets, pricing selections and theme controls. The app does **not** yet generate video, accept payments, or authenticate users with a server.
+HOTICE is a premium multi-AI video creation workspace. This repository contains a **functional studio preview** with responsive navigation, local project planning, inspiration, account access through the shared backend, encrypted device persistence, and explicit per-project cloud copies. Actual provider video generation, live payments and publication-ready signed builds are not connected yet.
 
 **Brand / product credit:** HOTICE  
 **Repository:** parmtech/HOTICE  
@@ -24,14 +24,14 @@ See [Avatar 3D capture and identity design contract](docs/AVATAR_IDENTITY_AND_SC
 
 ## Screens included
 - Welcome / onboarding.
-- Sign in and register UI (explicitly demo-only; never enter a real password).
+- Sign in, registration, verification and recovery through the shared HOTICE account API when a service URL is configured.
 - Projects grid and create-project dialog.
 - Project editor / generation composer (prompt, workflow presets, aspect ratio, duration and avatar picker).
 - Inspiration Library (search, category filters, scene prompt/model prefill and Actor role assignment).
 - Avatar Lab (local character presets).
 - HOTICE Credits purchase preview: Stripe, PayPal and credit/debit card.
 - Settings: light, dark, system + five colour themes.
-- Accounts: add a demo profile, switch profile and sign out.
+- Accounts: secure account sign-in, local-first project behavior, and optional per-project cloud copy/restore/delete with explicit consent and revision checks. Demo profiles remain local examples.
 
 ## Credit pricing — locked for this phase
 **1 HOTICE Credit = USD 0.01 = 1 US cent.**  
@@ -57,6 +57,7 @@ The platform scaffolds (Android/iOS) are intentionally not committed at this UI-
 - lib/src/welcome.dart — welcome and demo sign-in/register
 - lib/src/projects_generation.dart — projects and generation UI
 - lib/src/account_credits.dart — avatars, credits, themes and accounts
+- docs/NATIVE_CLOUD_PROJECTS.md — native cloud-copy flow, consent scope, API contract, conflict rules and release limits
 - lib/src/video_models.dart — demo-only model capability rules, dynamic duration/aspect controls and attachment/quote validation
 - lib/src/inspiration_catalog.dart — approved local prompt catalog, rights metadata and Actor-role mapping
 - web/public — Namecheap/cPanel-compatible static site, local Actor list and browser scene-editor preview
@@ -65,15 +66,15 @@ The platform scaffolds (Android/iOS) are intentionally not committed at this UI-
 - docs/CONTINUE_HERE.md — durable next-model handoff and verified limitations
 - docs/CREDITS.md — branding and attribution
 
-**Important:** Current interactions are session-only. A production release requires server-side authentication, database persistence, payment security, actual provider integrations, and verified builds.
+**Important:** Local project work is encrypted and persisted on-device. Cloud copies are opt-in snapshots of one project and exclude source media bytes and private Actor identity notes. Production release still requires deployed/staged backend acceptance, signed builds, provider and payment integration, and the release gates documented in GitHub issue #33.
 
 See docs/BLUEPRINT.md and docs/PROGRESS.md.
 
-## Current verification (26 Oct 2026)
-- Flutter static analysis, unit/widget tests, web validation, Android emulator smoke test, and debug APK build passed on [CI run 40246311392](https://github.com/parmtech/HOTICE/actions/runs/40246311392).
-- The **Android debug APK** artifact `HOTICE-Android-v0.2.0-run85` was uploaded in that run. It is a testing build, not a signed Play Store release.
-- Emulator smoke test passed for the tested journey; manual Android portrait/landscape and accessibility QA remain outstanding.
-- No manual on-device usability QA has been reported yet. No real camera/depth scan, face matching, AI generation, audio sync, checkout, live authentication, or cloud persistence is connected.
-- The Android and iOS native scaffolds are generated in CI/on demand; they are not committed to this repository.
+## Current verification
+- Native cloud-copy API/client tests cover one-project selection, privacy-safe fields, encrypted archive revision persistence, explicit consent, cancellation and stale remote revision handling.
+- Full Flutter tests passed locally on this feature branch. Android debug APK compilation passed locally after generating Flutter's platform scaffolds.
+- These checks do not substitute for this branch's exact-head GitHub Actions, production-signed store builds, physical-device QA, or cPanel deployment acceptance.
+- Real model inference, production camera/3D reconstruction, checkout, live providers and production hosting remain gated. This feature makes no provider or payment calls.
+- Android and iOS native scaffolds are generated in CI/on demand and are not committed to this repository.
 
 For continuation, see [docs/CONTINUE_HERE.md](docs/CONTINUE_HERE.md).

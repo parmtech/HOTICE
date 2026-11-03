@@ -14,9 +14,14 @@ class AccountUser {
     if (user is! Map<String, dynamic> ||
         user['id'] is! String ||
         user['email'] is! String) {
-      throw const AccountApiException('The account service returned an invalid response.');
+      throw const AccountApiException(
+        'The account service returned an invalid response.',
+      );
     }
-    return AccountUser(id: user['id'] as String, email: user['email'] as String);
+    return AccountUser(
+      id: user['id'] as String,
+      email: user['email'] as String,
+    );
   }
 }
 
@@ -51,6 +56,30 @@ class AccountApiException implements Exception {
   String toString() => message;
 }
 
+class CloudProjectSummary {
+  const CloudProjectSummary({
+    required this.id,
+    required this.title,
+    required this.revision,
+    required this.updatedAt,
+  });
+  final String id;
+  final String title;
+  final int revision;
+  final DateTime? updatedAt;
+}
+
+class CloudProjectSnapshot extends CloudProjectSummary {
+  const CloudProjectSnapshot({
+    required super.id,
+    required super.title,
+    required super.revision,
+    required super.updatedAt,
+    required this.document,
+  });
+  final Map<String, dynamic> document;
+}
+
 /// Shared authenticated HOTICE account API client. No API key is stored here;
 /// the optional base URL is a public deployment address supplied at build time.
 class AccountApi {
@@ -58,7 +87,9 @@ class AccountApi {
     String? baseUrl,
     http.Client? client,
     AccountTokenStore? tokenStore,
-  })  : _baseUrl = (baseUrl ?? const String.fromEnvironment('HOTICE_API_BASE_URL')).trim(),
+  })  : _baseUrl =
+            (baseUrl ?? const String.fromEnvironment('HOTICE_API_BASE_URL'))
+                .trim(),
         _client = client ?? http.Client(),
         _ownsClient = client == null,
         _tokenStore = tokenStore ?? SecureAccountTokenStore();
@@ -72,8 +103,11 @@ class AccountApi {
 
   Uri? _validBaseUri() {
     final uri = Uri.tryParse(_baseUrl);
-    if (uri == null || !uri.hasAuthority || uri.userInfo.isNotEmpty ||
-        uri.query.isNotEmpty || uri.fragment.isNotEmpty ||
+    if (uri == null ||
+        !uri.hasAuthority ||
+        uri.userInfo.isNotEmpty ||
+        uri.query.isNotEmpty ||
+        uri.fragment.isNotEmpty ||
         (uri.path.isNotEmpty && uri.path != '/')) {
       return null;
     }
@@ -96,7 +130,9 @@ class AccountApi {
       return null;
     }
     try {
-      return AccountUser.fromJson(await _request('GET', '/v1/me', token: token));
+      return AccountUser.fromJson(
+        await _request('GET', '/v1/me', token: token),
+      );
     } on AccountApiException catch (error) {
       // A network/service outage must not destroy a still-valid local session.
       // Only an explicit authorization rejection invalidates the stored token.
@@ -109,32 +145,46 @@ class AccountApi {
   }
 
   Future<AccountUser> signIn(String email, String password) async {
-    final response = await _request('POST', '/v1/auth/login', body: {
-      'email': email.trim(),
-      'password': password,
-    });
+    final response = await _request(
+      'POST',
+      '/v1/auth/login',
+      body: {'email': email.trim(), 'password': password},
+    );
     final token = response['accessToken'];
     if (token is! String || !RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(token)) {
-      throw const AccountApiException('The account service returned an invalid sign-in response.');
+      throw const AccountApiException(
+        'The account service returned an invalid sign-in response.',
+      );
     }
-    final user = AccountUser.fromJson(await _request('GET', '/v1/me', token: token));
+    final user = AccountUser.fromJson(
+      await _request('GET', '/v1/me', token: token),
+    );
     await _tokenStore.write(token);
     return user;
   }
 
   Future<void> register(String email, String password) async {
-    await _request('POST', '/v1/auth/register', body: {
-      'email': email.trim(),
-      'password': password,
-    });
+    await _request(
+      'POST',
+      '/v1/auth/register',
+      body: {'email': email.trim(), 'password': password},
+    );
   }
 
   Future<void> resendVerification(String email) async {
-    await _request('POST', '/v1/auth/verification/resend', body: {'email': email.trim()});
+    await _request(
+      'POST',
+      '/v1/auth/verification/resend',
+      body: {'email': email.trim()},
+    );
   }
 
   Future<void> requestPasswordReset(String email) async {
-    await _request('POST', '/v1/auth/password-reset/request', body: {'email': email.trim()});
+    await _request(
+      'POST',
+      '/v1/auth/password-reset/request',
+      body: {'email': email.trim()},
+    );
   }
 
   Future<void> signOut() async {
@@ -146,17 +196,141 @@ class AccountApi {
       return;
     }
     try {
-      if (token != null) await _request('POST', '/v1/auth/logout', token: token);
+      if (token != null) {
+        await _request('POST', '/v1/auth/logout', token: token);
+      }
     } finally {
       await _tokenStore.clear();
     }
+  }
+
+  /// Reads only projects belonging to the authenticated account. Calling this
+  /// method does not enable background sync or upload local work.
+  Future<List<CloudProjectSummary>> listCloudProjects() async {
+    final data = await _authorizedRequest('GET', '/v1/projects');
+    final rows = data['projects'];
+    if (rows is! List) {
+      throw const AccountApiException(
+        'The cloud service returned an invalid project list.',
+      );
+    }
+    return rows.map((row) {
+      if (row is! Map<String, dynamic>) {
+        throw const AccountApiException(
+          'The cloud service returned an invalid project.',
+        );
+      }
+      final id = row['id'];
+      final title = row['title'];
+      final revision = row['revision'];
+      if (id is! String ||
+          title is! String ||
+          int.tryParse('$revision') == null) {
+        throw const AccountApiException(
+          'The cloud service returned an invalid project.',
+        );
+      }
+      return CloudProjectSummary(
+        id: id,
+        title: title,
+        revision: int.parse('$revision'),
+        updatedAt: DateTime.tryParse('${row['updated_at'] ?? ''}'),
+      );
+    }).toList(growable: false);
+  }
+
+  Future<CloudProjectSnapshot> getCloudProject(String id) async {
+    final data = await _authorizedRequest(
+      'GET',
+      '/v1/projects/${_projectId(id)}',
+    );
+    final row = data['project'];
+    if (row is! Map<String, dynamic> ||
+        row['id'] is! String ||
+        row['title'] is! String ||
+        row['document'] is! Map<String, dynamic> ||
+        int.tryParse('${row['revision']}') == null) {
+      throw const AccountApiException(
+        'The cloud service returned an invalid project.',
+      );
+    }
+    return CloudProjectSnapshot(
+      id: row['id'] as String,
+      title: row['title'] as String,
+      revision: int.parse('${row['revision']}'),
+      updatedAt: DateTime.tryParse('${row['updated_at'] ?? ''}'),
+      document: row['document'] as Map<String, dynamic>,
+    );
+  }
+
+  Future<int> saveCloudProject({
+    required String id,
+    required String title,
+    required int expectedRevision,
+    required Map<String, dynamic> document,
+  }) async {
+    if (expectedRevision < 0) {
+      throw const AccountApiException('Invalid cloud revision.');
+    }
+    final data = await _authorizedRequest(
+      'PUT',
+      '/v1/projects/${_projectId(id)}',
+      body: {
+        'title': title,
+        'expectedRevision': expectedRevision,
+        'document': document,
+      },
+    );
+    final revision = int.tryParse('${data['revision']}');
+    if (revision == null || revision < 1) {
+      throw const AccountApiException(
+        'The cloud service returned an invalid save result.',
+      );
+    }
+    return revision;
+  }
+
+  Future<void> deleteCloudProject(String id) async {
+    await _authorizedRequest('DELETE', '/v1/projects/${_projectId(id)}');
+  }
+
+  String _projectId(String id) {
+    if (!RegExp(
+      r'^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$',
+      caseSensitive: false,
+    ).hasMatch(id)) {
+      throw const AccountApiException('Invalid project identifier.');
+    }
+    return id;
+  }
+
+  Future<Map<String, dynamic>> _authorizedRequest(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    String? token;
+    try {
+      token = await _tokenStore.read();
+    } on Exception {
+      throw const AccountApiException(
+        'Secure account session is unavailable. Sign in again.',
+      );
+    }
+    if (token == null || !RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(token)) {
+      throw const AccountApiException(
+        'Sign in to use cloud projects.',
+        statusCode: 401,
+      );
+    }
+    return _request(method, path, token: token, body: body);
   }
 
   Future<Map<String, dynamic>> _request(
     String method,
     String path, {
     String? token,
-    Map<String, String>? body,
+    Map<String, dynamic>? body,
   }) async {
     final base = _validBaseUri();
     if (base == null) {
@@ -170,12 +344,19 @@ class AccountApi {
     if (token != null) headers['Authorization'] = 'Bearer $token';
     late http.Response response;
     try {
-      response = method == 'GET'
-          ? await _client.get(uri, headers: headers).timeout(const Duration(seconds: 15))
-          : await _client.post(uri, headers: headers, body: jsonEncode(body ?? const {}))
-              .timeout(const Duration(seconds: 15));
+      final payload = body == null ? null : jsonEncode(body);
+      final request = http.Request(method, uri)..headers.addAll(headers);
+      // Do not forward a bearer token across an unexpected API redirect.
+      request.followRedirects = false;
+      if (payload != null) request.body = payload;
+      final streamed =
+          await _client.send(request).timeout(const Duration(seconds: 30));
+      response = await http.Response.fromStream(streamed)
+          .timeout(const Duration(seconds: 15));
     } on Exception {
-      throw const AccountApiException('Could not reach the HOTICE account service. Check your connection and try again.');
+      throw const AccountApiException(
+        'Could not reach the HOTICE account service. Check your connection and try again.',
+      );
     }
     Map<String, dynamic> decoded;
     try {
@@ -183,7 +364,9 @@ class AccountApi {
       if (value is! Map<String, dynamic>) throw const FormatException();
       decoded = value;
     } on FormatException {
-      throw const AccountApiException('The HOTICE account service returned an invalid response.');
+      throw const AccountApiException(
+        'The HOTICE account service returned an invalid response.',
+      );
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final serverMessage = decoded['error'];
