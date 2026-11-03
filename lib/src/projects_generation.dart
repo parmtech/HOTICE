@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
 
 import 'account_api.dart';
+
+import 'package:file_picker/file_picker.dart';
+
+import 'smart_references.dart';
 import 'state.dart';
 import 'video_models.dart';
+import 'model_compatibility_page.dart';
+import 'model_registry.dart';
+import 'api_model_preview_panel.dart';
 import 'avatar_identity.dart';
 import 'design.dart';
 import 'dialogs.dart';
@@ -65,15 +72,18 @@ class ProjectsPage extends StatelessWidget {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Delete project?'),
         content: Text(
-            'Delete "${project.title}" and its $draftCount saved scene drafts '
-            'and $planCount storyboards from this device? This cannot be undone.'),
+          'Delete "${project.title}" and its $draftCount saved scene drafts '
+          'and $planCount storyboards from this device? This cannot be undone.',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Delete project')),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete project'),
+          ),
         ],
       ),
     );
@@ -110,101 +120,128 @@ class ProjectsPage extends StatelessWidget {
           const SizedBox(height: 22),
           if (store.projects.isEmpty)
             StudioPanel(
-                child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.movie_creation_outlined,
-                    size: 36, color: Theme.of(context).colorScheme.primary),
-                const SizedBox(height: 12),
-                Text('Your next film starts here',
-                    style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 6),
-                const Text('Create a project to plan scenes or a music video.'),
-              ],
-            )),
-          LayoutBuilder(builder: (context, box) {
-            final columns = box.maxWidth > 810
-                ? 3
-                : box.maxWidth > 520
-                    ? 2
-                    : 1;
-            final width = ((box.maxWidth - (columns - 1) * 14) / columns)
-                .clamp(0.0, 1160.0);
-            return Wrap(
-              spacing: 14,
-              runSpacing: 14,
-              children: [
-                for (final project in store.projects)
-                  SizedBox(
-                    width: width,
-                    child: StudioPanel(
-                      padding: EdgeInsets.zero,
-                      // InkWell must be INSIDE the StudioPanel Material surface
-                      // for visible feedback and correct Material ancestry.
-                      child: InkWell(
-                        onTap: () => onOpen(project.id),
-                        borderRadius: BorderRadius.circular(23),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              FilmPreview(title: project.title),
-                              const SizedBox(height: 12),
-                              LayoutBuilder(builder: (context, constraints) {
-                                final title = Text(project.title,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium);
-                                final menu = PopupMenuButton<String>(
-                                  key:
-                                      ValueKey('project-options-${project.id}'),
-                                  tooltip: 'Project options',
-                                  icon: const Icon(Icons.more_vert_rounded),
-                                  onSelected: (action) async {
-                                    if (action == 'rename')
-                                      await rename(context, project);
-                                    if (action == 'delete')
-                                      await delete(context, project);
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.movie_creation_outlined,
+                    size: 36,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Your next film starts here',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Create a project to plan scenes or a music video.',
+                  ),
+                ],
+              ),
+            ),
+          LayoutBuilder(
+            builder: (context, box) {
+              final columns = box.maxWidth > 810
+                  ? 3
+                  : box.maxWidth > 520
+                      ? 2
+                      : 1;
+              final width = ((box.maxWidth - (columns - 1) * 14) / columns)
+                  .clamp(0.0, 1160.0);
+              return Wrap(
+                spacing: 14,
+                runSpacing: 14,
+                children: [
+                  for (final project in store.projects)
+                    SizedBox(
+                      width: width,
+                      child: StudioPanel(
+                        padding: EdgeInsets.zero,
+                        // InkWell must be INSIDE the StudioPanel Material surface
+                        // for visible feedback and correct Material ancestry.
+                        child: InkWell(
+                          onTap: () => onOpen(project.id),
+                          borderRadius: BorderRadius.circular(23),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                FilmPreview(title: project.title),
+                                const SizedBox(height: 12),
+                                LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final title = Text(
+                                      project.title,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium,
+                                    );
+                                    final menu = PopupMenuButton<String>(
+                                      key: ValueKey(
+                                        'project-options-${project.id}',
+                                      ),
+                                      tooltip: 'Project options',
+                                      icon: const Icon(Icons.more_vert_rounded),
+                                      onSelected: (action) async {
+                                        if (action == 'rename')
+                                          await rename(context, project);
+                                        if (action == 'delete')
+                                          await delete(context, project);
+                                      },
+                                      itemBuilder: (_) => const [
+                                        PopupMenuItem(
+                                          value: 'rename',
+                                          child: Text('Rename'),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'delete',
+                                          child: Text('Delete'),
+                                        ),
+                                      ],
+                                    );
+                                    if (constraints.maxWidth < 64) {
+                                      return Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [title, menu],
+                                      );
+                                    }
+                                    return Row(
+                                      children: [
+                                        Expanded(child: title),
+                                        menu,
+                                      ],
+                                    );
                                   },
-                                  itemBuilder: (_) => const [
-                                    PopupMenuItem(
-                                        value: 'rename', child: Text('Rename')),
-                                    PopupMenuItem(
-                                        value: 'delete', child: Text('Delete')),
-                                  ],
-                                );
-                                if (constraints.maxWidth < 64) {
-                                  return Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [title, menu]);
-                                }
-                                return Row(
-                                    children: [Expanded(child: title), menu]);
-                              }),
-                              const SizedBox(height: 6),
-                              Text(
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
                                   '${store.drafts.where((item) => item.projectId == project.id).length} '
                                   'scene drafts · ${store.musicPlans.where((item) => item.projectId == project.id).length} '
                                   'storyboards',
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.bodySmall),
-                              const SizedBox(height: 6),
-                              const Text('Open project →',
-                                  style: TextStyle(fontSize: 12)),
-                            ],
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Open project →',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-              ],
-            );
-          }),
+                ],
+              );
+            },
+          ),
         ],
       ),
     );
@@ -246,6 +283,9 @@ class _GenerationPageState extends State<GenerationPage> {
   final Map<String, String> _unsavedNegativePrompts = {};
   final Map<String, String> _unsavedSeeds = {};
   final Map<String, bool> _unsavedSounds = {};
+  final Map<String, bool> _manualReferencesByProject = {};
+  final Map<String, Set<String>> _pinnedReferencesByProject = {};
+  final Map<String, FaceView?> _preferredViewsByProject = {};
   String? project;
   String model = 'cinematic_demo';
   String avatarName = 'None';
@@ -297,8 +337,10 @@ class _GenerationPageState extends State<GenerationPage> {
   Future<void> _checkMockGenerationAvailability() async {
     final api = widget.accountApi;
     if (api == null || !api.isConfigured || widget.authenticatedEmail == null) {
-      setState(() => _mockStatus =
-          'Sign in to a configured HOTICE server to check dry-run availability.');
+      setState(
+        () => _mockStatus =
+            'Sign in to a configured HOTICE server to check dry-run availability.',
+      );
       return;
     }
     setState(() {
@@ -334,20 +376,26 @@ class _GenerationPageState extends State<GenerationPage> {
       return;
     }
     if (pending != null && pending.accountUserId != userId) {
-      setState(() => _mockStatus =
-          'This safe retry belongs to another HOTICE account. Sign in to that account before resuming it.');
+      setState(
+        () => _mockStatus =
+            'This safe retry belongs to another HOTICE account. Sign in to that account before resuming it.',
+      );
       return;
     }
     final text = pending?.prompt ?? prompt.text.trim();
     final projectId = pending?.projectId ?? project;
     if (projectId == null || !isCloudProjectId(projectId)) {
-      setState(() => _mockStatus =
-          'Create a personal project before starting a server dry run.');
+      setState(
+        () => _mockStatus =
+            'Create a personal project before starting a server dry run.',
+      );
       return;
     }
     if (text.isEmpty || text.length > 2000) {
-      setState(() =>
-          _mockStatus = 'Enter a scene prompt between 1 and 2,000 characters.');
+      setState(
+        () => _mockStatus =
+            'Enter a scene prompt between 1 and 2,000 characters.',
+      );
       return;
     }
     setState(() {
@@ -425,14 +473,16 @@ class _GenerationPageState extends State<GenerationPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                  'Only the scene text below will be sent to the HOTICE server. '
-                  'Actor identity notes, reference files, media, model preview settings, '
-                  'duration and aspect ratio are excluded.'),
+                'Only the scene text below will be sent to the HOTICE server. '
+                'Actor identity notes, reference files, media, model preview settings, '
+                'duration and aspect ratio are excluded.',
+              ),
               const SizedBox(height: 12),
               SelectableText(text),
               const SizedBox(height: 12),
               Text(
-                  '${quote.credits} simulated credits. No money is charged; no video is created.'),
+                '${quote.credits} simulated credits. No money is charged; no video is created.',
+              ),
             ],
           ),
         ),
@@ -453,8 +503,10 @@ class _GenerationPageState extends State<GenerationPage> {
     PendingMockSubmission? intent;
     try {
       if (widget.authenticatedUserId == null) {
-        setState(() => _mockStatus =
-            'The authenticated account could not be verified. Sign in again before submitting.');
+        setState(
+          () => _mockStatus =
+              'The authenticated account could not be verified. Sign in again before submitting.',
+        );
         return;
       }
       if (_quotedIntentKey != null) {
@@ -463,13 +515,17 @@ class _GenerationPageState extends State<GenerationPage> {
         );
         intent = pending.isEmpty ? null : pending.first;
         if (intent == null) {
-          setState(() => _mockStatus =
-              'The saved retry intent is no longer available. Keep this project and refresh its state.');
+          setState(
+            () => _mockStatus =
+                'The saved retry intent is no longer available. Keep this project and refresh its state.',
+          );
           return;
         }
         if (intent.accountUserId != widget.authenticatedUserId) {
-          setState(() => _mockStatus =
-              'This safe retry belongs to another HOTICE account. Sign in to that account before resuming it.');
+          setState(
+            () => _mockStatus =
+                'This safe retry belongs to another HOTICE account. Sign in to that account before resuming it.',
+          );
           return;
         }
       } else {
@@ -514,8 +570,10 @@ class _GenerationPageState extends State<GenerationPage> {
                 enabled: _mockAvailability!.enabled,
                 credits: _mockAvailability!.credits == null
                     ? null
-                    : (_mockAvailability!.credits! - job.reservedCredits)
-                        .clamp(0, 1 << 30),
+                    : (_mockAvailability!.credits! - job.reservedCredits).clamp(
+                        0,
+                        1 << 30,
+                      ),
               );
       });
       await _refreshMockJobs(silent: true);
@@ -553,8 +611,10 @@ class _GenerationPageState extends State<GenerationPage> {
     } on AccountApiException {
       if (!mounted) return;
       if (!silent) {
-        setState(() => _mockStatus =
-            'Could not refresh jobs. Your local project and pending retry intents are unchanged.');
+        setState(
+          () => _mockStatus =
+              'Could not refresh jobs. Your local project and pending retry intents are unchanged.',
+        );
       }
     } finally {
       if (mounted) setState(() => _loadingMockJobs = false);
@@ -567,14 +627,17 @@ class _GenerationPageState extends State<GenerationPage> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Cancel queued mock job?'),
         content: Text(
-            'This cancels only a queued dry-run record and returns its ${job.reservedCredits} simulated credits. No video or provider request exists.'),
+          'This cancels only a queued dry-run record and returns its ${job.reservedCredits} simulated credits. No video or provider request exists.',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Keep job')),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep job'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Cancel queued job')),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Cancel queued job'),
+          ),
         ],
       ),
     );
@@ -585,7 +648,7 @@ class _GenerationPageState extends State<GenerationPage> {
       setState(() {
         _mockJobs = [
           for (final current in _mockJobs)
-            current.id == updated.id ? updated : current
+            current.id == updated.id ? updated : current,
         ];
         _mockStatus = updated.status == 'cancelled'
             ? 'Queued mock job cancelled; simulated credits were returned.'
@@ -593,9 +656,11 @@ class _GenerationPageState extends State<GenerationPage> {
       });
     } on AccountApiException catch (error) {
       if (mounted) {
-        setState(() => _mockStatus = error.statusCode == 409
-            ? 'This job is no longer queued and cannot be cancelled.'
-            : 'Could not cancel the job. Refresh its status.');
+        setState(
+          () => _mockStatus = error.statusCode == 409
+              ? 'This job is no longer queued and cannot be cancelled.'
+              : 'Could not cancel the job. Refresh its status.',
+        );
       }
     }
   }
@@ -629,8 +694,10 @@ class _GenerationPageState extends State<GenerationPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Backend dry-run workflow',
-              style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            'Backend dry-run workflow',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: 6),
           const Text(
             'Mock queue only. It does not generate video or call a paid AI provider. '
@@ -640,10 +707,12 @@ class _GenerationPageState extends State<GenerationPage> {
           const SizedBox(height: 10),
           if (!signedIn)
             const Text(
-                'Sign in to a HOTICE account to check this server workflow.'),
+              'Sign in to a HOTICE account to check this server workflow.',
+            ),
           if (signedIn && !configured)
             const Text(
-                'This build has no secure HOTICE service URL configured.'),
+              'This build has no secure HOTICE service URL configured.',
+            ),
           if (hasOtherAccountIntent)
             const Text(
               'A pending safe retry is tied to another HOTICE account. Sign in as that account to resolve it before starting a new request.',
@@ -691,8 +760,10 @@ class _GenerationPageState extends State<GenerationPage> {
             ],
             if (pending.isNotEmpty) ...[
               const Divider(height: 24),
-              Text('Safe retries waiting on this device',
-                  style: Theme.of(context).textTheme.titleSmall),
+              Text(
+                'Safe retries waiting on this device',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
               const SizedBox(height: 4),
               const Text(
                 'An earlier request may have reached the server before the connection ended. '
@@ -763,10 +834,7 @@ class _GenerationPageState extends State<GenerationPage> {
           ],
           if (_mockStatus != null) ...[
             const SizedBox(height: 6),
-            Semantics(
-              liveRegion: true,
-              child: Text(_mockStatus!),
-            ),
+            Semantics(liveRegion: true, child: Text(_mockStatus!)),
           ],
         ],
       ),
@@ -832,18 +900,25 @@ class _GenerationPageState extends State<GenerationPage> {
     }
     sceneActors
       ..clear()
-      ..addAll(next == null
-          ? const <SceneActor>[]
-          : (_unsavedActors[next] ?? const <SceneActor>[]));
+      ..addAll(
+        next == null
+            ? const <SceneActor>[]
+            : (_unsavedActors[next] ?? const <SceneActor>[]),
+      );
     references
       ..clear()
-      ..addAll(next == null
-          ? const <SceneReference>[]
-          : (_unsavedReferences[next] ?? const <SceneReference>[]));
-    sceneActors.removeWhere((cast) =>
-        !widget.store.avatars.any((actor) => actor.name == cast.avatarName));
-    references
-        .removeWhere((reference) => chosen.maximumFor(reference.type) == 0);
+      ..addAll(
+        next == null
+            ? const <SceneReference>[]
+            : (_unsavedReferences[next] ?? const <SceneReference>[]),
+      );
+    sceneActors.removeWhere(
+      (cast) =>
+          !widget.store.avatars.any((actor) => actor.name == cast.avatarName),
+    );
+    references.removeWhere(
+      (reference) => chosen.maximumFor(reference.type) == 0,
+    );
     negativePrompt.text =
         next == null ? '' : (_unsavedNegativePrompts[next] ?? '');
     seedText.text = next == null ? '' : (_unsavedSeeds[next] ?? '');
@@ -911,11 +986,93 @@ class _GenerationPageState extends State<GenerationPage> {
     });
   }
 
+  ReferenceSelection _referenceSelection() {
+    final avatarPack = avatarName == 'None' ||
+            !widget.store.avatars.any((a) => a.name == avatarName)
+        ? null
+        : widget.store.avatarPackFor(avatarName);
+    final projectId = project;
+    return SmartReferencePlanner.plan(
+      avatarPack: avatarPack,
+      sceneAssets: projectId == null
+          ? const <AvatarReference>[]
+          : widget.store.sceneReferencesFor(projectId),
+      model: ReferenceModelCapability.demo(profile),
+      scenePrompt: prompt.text,
+      preferredView:
+          projectId == null ? null : _preferredViewsByProject[projectId],
+      autoSelect: projectId == null ||
+          !(_manualReferencesByProject[projectId] ?? false),
+      lockedIds: projectId == null
+          ? const <String>[]
+          : (_pinnedReferencesByProject[projectId] ?? const <String>{}),
+    );
+  }
+
+  Future<void> importScenePhoto(ReferenceRole role) async {
+    final owner = project;
+    if (owner == null) return;
+    try {
+      final file = await FilePicker.pickFile(type: FileType.image);
+      if (!mounted || file == null) return;
+      final fileBytes = file.lengthSync() ?? await file.length();
+      if (!mounted) return;
+      final ext = (file.extension ?? '').toLowerCase();
+      final mime = switch (ext) {
+        'jpg' || 'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        _ => null,
+      };
+      if (mime == null ||
+          file.path == null ||
+          file.path!.isEmpty ||
+          fileBytes == null ||
+          fileBytes <= 0 ||
+          fileBytes > 15 * 1024 * 1024) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Choose a JPG/PNG/WebP photo under 15 MB.'),
+          ),
+        );
+        return;
+      }
+      final saved = widget.store.addSceneReference(
+        owner,
+        AvatarReference(
+          id: createLocalProjectId(),
+          ownerName: owner,
+          role: role,
+          format: ReferenceFormat.image,
+          mimeType: mime,
+          localPath: file.path!,
+        ),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            saved
+                ? '${role.name} reference added to this project session.'
+                : 'Reference was not added (project or limit changed).',
+          ),
+        ),
+      );
+      setState(() {});
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Image picker was cancelled or failed.')),
+      );
+    }
+  }
+
   void save() {
     if (prompt.text.trim().isEmpty || project == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Choose a project and describe your scene.')),
+          content: Text('Choose a project and describe your scene.'),
+        ),
       );
       return;
     }
@@ -931,18 +1088,22 @@ class _GenerationPageState extends State<GenerationPage> {
         sceneActors.length > profile.maxActors) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text(
-                'Your actors or reference files exceed this model limit.')),
+          content: Text(
+            'Your actors or reference files exceed this model limit.',
+          ),
+        ),
       );
       return;
     }
+
     int? seed;
     if (seedText.text.trim().isNotEmpty) {
       seed = int.tryParse(seedText.text.trim());
       if (seed == null || seed < 0 || !profile.supportsSeed) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('Enter a valid non-negative seed for this model.')),
+            content: Text('Enter a valid non-negative seed for this model.'),
+          ),
         );
         return;
       }
@@ -951,7 +1112,8 @@ class _GenerationPageState extends State<GenerationPage> {
         !profile.supportsNegativePrompt) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Negative prompting is unavailable for this model.')),
+          content: Text('Negative prompting is unavailable for this model.'),
+        ),
       );
       return;
     }
@@ -960,17 +1122,20 @@ class _GenerationPageState extends State<GenerationPage> {
         sceneActors.length < selectedTemplate!.actorSlots.length) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text(
-          'Assign ${selectedTemplate!.actorSlots.length} named actors to use this template.',
-        )),
+          content: Text(
+            'Assign ${selectedTemplate!.actorSlots.length} named actors to use this template.',
+          ),
+        ),
       );
       return;
     }
     try {
       var source = prompt.text.trim();
       if (selectedTemplate != null && selectedTemplate!.prompt == source) {
-        source =
-            InspirationPromptBuilder.compile(selectedTemplate!, sceneActors);
+        source = InspirationPromptBuilder.compile(
+          selectedTemplate!,
+          sceneActors,
+        );
       }
       // Detect unresolved placeholders even when the user has edited the text.
       final roleTokens =
@@ -980,8 +1145,9 @@ class _GenerationPageState extends State<GenerationPage> {
           throw StateError('Assign the named actors before saving.');
         }
         final seen = <String>{};
-        source =
-            source.replaceAllMapped(RegExp(r'\{\{Actor[0-9]+\}\}'), (match) {
+        source = source.replaceAllMapped(RegExp(r'\{\{Actor[0-9]+\}\}'), (
+          match,
+        ) {
           final token = match.group(0)!;
           if (!seen.contains(token)) {
             seen.add(token);
@@ -990,9 +1156,16 @@ class _GenerationPageState extends State<GenerationPage> {
           return sceneActors[index].sceneName;
         });
       }
+      final referencePlan = _referenceSelection();
+      if (referencePlan.errors.isNotEmpty) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(referencePlan.errors.first)));
+        return;
+      }
       final selected = matches.first;
-      final primaryActor =
-          widget.store.avatars.where((actor) => actor.name == avatarName);
+      final primaryActor = widget.store.avatars.where(
+        (actor) => actor.name == avatarName,
+      );
       final preparedPrompt = sceneActors.isNotEmpty
           ? AvatarPromptComposer.composeActors(
               scenePrompt: source,
@@ -1005,29 +1178,36 @@ class _GenerationPageState extends State<GenerationPage> {
               avatar: primaryActor.isEmpty ? null : primaryActor.first,
               model: profile,
             );
-      widget.store.queueDraft(GenerationDraft(
-        projectId: selected.id,
-        modelId: profile.id,
-        project: selected.title,
-        prompt: preparedPrompt,
-        model: profile.label,
-        aspectRatio: ratio,
-        durationSeconds: seconds,
-        avatarName: avatarName,
-        actors: List<SceneActor>.unmodifiable(sceneActors),
-        referenceFiles: List<SceneReference>.unmodifiable(references),
-        negativePrompt: negativePrompt.text.trim(),
-        seed: seed,
-        soundEnabled: soundEnabled,
-        createdAt: DateTime.now(),
-      ));
+      widget.store.queueDraft(
+        GenerationDraft(
+          projectId: selected.id,
+          modelId: profile.id,
+          project: selected.title,
+          prompt: preparedPrompt,
+          model: profile.label,
+          aspectRatio: ratio,
+          durationSeconds: seconds,
+          avatarName: avatarName,
+          actors: List<SceneActor>.unmodifiable(sceneActors),
+          referenceFiles: List<SceneReference>.unmodifiable(references),
+          negativePrompt: negativePrompt.text.trim(),
+          seed: seed,
+          soundEnabled: soundEnabled,
+          selectedReferenceIds: [
+            for (final asset in referencePlan.selected) asset.id,
+          ],
+          requestedAttachments: referencePlan.imageCount > 0
+              ? const [VideoAttachment.image]
+              : const <VideoAttachment>[],
+          createdAt: DateTime.now(),
+        ),
+      );
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Scene draft saved. No AI request sent.')),
       );
     } on StateError catch (error) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.message)));
     }
   }
 
@@ -1037,9 +1217,32 @@ class _GenerationPageState extends State<GenerationPage> {
     if (!validProjects.any((item) => item.id == project)) {
       _selectProject(validProjects.isEmpty ? null : validProjects.first.id);
     }
+
     // Remove stale cast entries if an actor preset was deleted.
-    sceneActors.removeWhere((cast) =>
-        !widget.store.avatars.any((actor) => actor.name == cast.avatarName));
+    sceneActors.removeWhere(
+      (cast) =>
+          !widget.store.avatars.any((actor) => actor.name == cast.avatarName),
+    );
+
+    final avatars = [
+      'None',
+      for (final item in widget.store.avatars) item.name,
+    ];
+    if (!avatars.contains(avatarName)) avatarName = 'None';
+    final currentPlan = _referenceSelection();
+    final avatarAssets = avatarName == 'None'
+        ? const <AvatarReference>[]
+        : widget.store.avatarPackFor(avatarName).assets;
+    final sceneAssets = project == null
+        ? const <AvatarReference>[]
+        : widget.store.sceneReferencesFor(project!);
+    final allAssets = [...avatarAssets, ...sceneAssets];
+    final manualMode =
+        project != null && (_manualReferencesByProject[project!] ?? false);
+    final pinned = project == null
+        ? <String>{}
+        : (_pinnedReferencesByProject[project!] ?? <String>{});
+
     final editor = StudioPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1052,16 +1255,19 @@ class _GenerationPageState extends State<GenerationPage> {
             decoration: const InputDecoration(labelText: 'Project'),
             isExpanded: true,
             items: widget.store.projects
-                .map((item) => DropdownMenuItem(
-                      value: item.id,
-                      child: Text(item.title, overflow: TextOverflow.ellipsis),
-                    ))
+                .map(
+                  (item) => DropdownMenuItem(
+                    value: item.id,
+                    child: Text(item.title, overflow: TextOverflow.ellipsis),
+                  ),
+                )
                 .toList(),
             onChanged: (v) => setState(() => _selectProject(v)),
           ),
           const SizedBox(height: 13),
           TextField(
             controller: prompt,
+            onChanged: (_) => setState(() {}),
             minLines: 4,
             maxLines: 7,
             decoration: const InputDecoration(
@@ -1089,6 +1295,29 @@ class _GenerationPageState extends State<GenerationPage> {
             'These are demo capability profiles, not connected AI providers.',
             style: TextStyle(fontSize: 12),
           ),
+          const SizedBox(height: 9),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ModelCompatibilityPage()),
+            ),
+            icon: const Icon(Icons.hub_outlined),
+            label: Text(
+              'Explore ' +
+                  HoticeAiCatalog.entries
+                      .where((entry) => entry.status != AiStatus.retired)
+                      .length
+                      .toString() +
+                  ' real API model research profiles',
+            ),
+          ),
+          ApiVideoPreviewPanel(prompt: prompt.text),
+          const SizedBox(height: 6),
+          const Text(
+            'Production model controls are separate from this offline demo. '
+            'Real provider options, reference roles and duration constraints '
+            'must come from a tested backend model catalog.',
+            style: TextStyle(fontSize: 12),
+          ),
           const SizedBox(height: 13),
           DropdownButtonFormField<String>(
             key: ValueKey('normal-avatar-$project'),
@@ -1106,13 +1335,16 @@ class _GenerationPageState extends State<GenerationPage> {
           const SizedBox(height: 13),
           if (selectedTemplate != null) ...[
             const SizedBox(height: 9),
-            Text('Template selected: ${selectedTemplate!.title}',
-                style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              'Template selected: ${selectedTemplate!.title}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             if (selectedTemplate!.actorSlots.isNotEmpty)
               Text(
-                  'Add ${selectedTemplate!.actorSlots.length} named actors in order '
-                  'to replace template role placeholders.',
-                  style: Theme.of(context).textTheme.bodySmall),
+                'Add ${selectedTemplate!.actorSlots.length} named actors in order '
+                'to replace template role placeholders.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
           ],
           const SizedBox(height: 16),
           SceneCastAndReferences(
@@ -1131,26 +1363,180 @@ class _GenerationPageState extends State<GenerationPage> {
                 ..addAll(items);
             }),
           ),
+          const SizedBox(height: 14),
+          Text(
+            'Smart reference manager',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 5),
+          const Text(
+            'Offline four-image limit is a simulation, not a verified provider capability. No media is uploaded or generated.',
+            style: TextStyle(fontSize: 12),
+          ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Manual selection'),
+            subtitle: const Text('Off = automatic camera-angle matching'),
+            value: manualMode,
+            onChanged: project == null
+                ? null
+                : (value) => setState(() {
+                      _manualReferencesByProject[project!] = value;
+                    }),
+          ),
+          if (!manualMode && avatarName != 'None') ...[
+            DropdownButtonFormField<String>(
+              key: ValueKey('ref-angle-$project-$avatarName'),
+              initialValue: _preferredViewsByProject[project]?.name ?? 'auto',
+              decoration: const InputDecoration(labelText: 'Reference angle'),
+              items: [
+                const DropdownMenuItem(
+                  value: 'auto',
+                  child: Text('Auto — read scene prompt'),
+                ),
+                for (final view in FaceView.values)
+                  DropdownMenuItem(value: view.name, child: Text(view.label)),
+              ],
+              onChanged: (name) => setState(() {
+                if (project == null) return;
+                _preferredViewsByProject[project!] =
+                    name == null || name == 'auto'
+                        ? null
+                        : FaceView.values.firstWhere((v) => v.name == name);
+              }),
+            ),
+            const SizedBox(height: 7),
+          ],
+          Wrap(
+            spacing: 8,
+            runSpacing: 5,
+            children: [
+              PopupMenuButton<ReferenceRole>(
+                tooltip: 'Add scene reference',
+                onSelected: importScenePhoto,
+                itemBuilder: (ctx) => const [
+                  PopupMenuItem(
+                    value: ReferenceRole.location,
+                    child: Text('Import location photo'),
+                  ),
+                  PopupMenuItem(
+                    value: ReferenceRole.object,
+                    child: Text('Import object / vehicle photo'),
+                  ),
+                  PopupMenuItem(
+                    value: ReferenceRole.style,
+                    child: Text('Import style reference'),
+                  ),
+                ],
+                child: const Chip(
+                  avatar: Icon(Icons.add_photo_alternate_outlined, size: 18),
+                  label: Text('Add scene image'),
+                ),
+              ),
+              Chip(label: Text('Selected ${currentPlan.imageCount}/4 (demo)')),
+            ],
+          ),
+          if (pinned.isNotEmpty)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: project == null
+                    ? null
+                    : () => setState(() {
+                          _pinnedReferencesByProject[project!]?.clear();
+                        }),
+                icon: const Icon(Icons.restart_alt),
+                label: const Text('Clear locked / manual references'),
+              ),
+            ),
+          if (allAssets.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                'No reference photos yet. Add face views in Avatar Studio or add scene images here.',
+              ),
+            ),
+          for (final asset in allAssets)
+            CheckboxListTile(
+              key: ValueKey('reference-pin-${asset.id}'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: Text(
+                asset.role == ReferenceRole.avatar
+                    ? 'Avatar · ${asset.view?.label ?? 'Face'}'
+                    : '${asset.role.name} image',
+              ),
+              subtitle: Text(
+                manualMode ? 'Include this image' : 'Lock this image',
+              ),
+              value: pinned.contains(asset.id),
+              secondary: asset.role == ReferenceRole.avatar
+                  ? null
+                  : IconButton(
+                      tooltip: 'Remove scene reference',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () => setState(() {
+                        if (project != null) {
+                          widget.store.removeSceneReference(project!, asset.id);
+                          _pinnedReferencesByProject[project!]?.remove(
+                            asset.id,
+                          );
+                        }
+                      }),
+                    ),
+              onChanged: (checked) => setState(() {
+                final refs = _pinnedReferencesByProject.putIfAbsent(
+                  project!,
+                  () => <String>{},
+                );
+                if (checked == true) {
+                  refs.add(asset.id);
+                } else {
+                  refs.remove(asset.id);
+                }
+              }),
+            ),
+          for (final message in currentPlan.errors)
+            Text(
+              message,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.error,
+                fontSize: 12,
+              ),
+            ),
+          if (currentPlan.selected.isNotEmpty)
+            Text(
+              'Planned: ${currentPlan.selected.map((a) => a.role == ReferenceRole.avatar ? a.view?.label ?? 'Face' : a.role.name).join(' + ')}',
+              style: const TextStyle(fontSize: 12),
+            ),
+          for (final message in currentPlan.warnings.take(2))
+            Text(message, style: const TextStyle(fontSize: 11)),
           const SizedBox(height: 17),
           Text('Aspect ratio', style: Theme.of(context).textTheme.titleSmall),
-          Wrap(spacing: 8, children: [
-            for (final item in profile.ratiosFor(seconds))
-              ChoiceChip(
-                label: Text(item),
-                selected: ratio == item,
-                onSelected: (_) => setState(() => ratio = item),
-              ),
-          ]),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final item in profile.ratiosFor(seconds))
+                ChoiceChip(
+                  label: Text(item),
+                  selected: ratio == item,
+                  onSelected: (_) => setState(() => ratio = item),
+                ),
+            ],
+          ),
           const SizedBox(height: 12),
           Text('Duration', style: Theme.of(context).textTheme.titleSmall),
-          Wrap(spacing: 8, children: [
-            for (final item in profile.durations)
-              ChoiceChip(
-                label: Text('$item seconds'),
-                selected: seconds == item,
-                onSelected: (_) => changeDuration(item),
-              ),
-          ]),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final item in profile.durations)
+                ChoiceChip(
+                  label: Text('$item seconds'),
+                  selected: seconds == item,
+                  onSelected: (_) => changeDuration(item),
+                ),
+            ],
+          ),
           const SizedBox(height: 15),
           ExpansionTile(
             initiallyExpanded: false,
@@ -1159,9 +1545,10 @@ class _GenerationPageState extends State<GenerationPage> {
             childrenPadding: const EdgeInsets.only(bottom: 15),
             children: [
               Text(
-                  'Model selection is currently illustrative. Real provider '
-                  'capabilities and actual prices will come from the secure admin catalog.',
-                  style: Theme.of(context).textTheme.bodySmall),
+                'Model selection is currently illustrative. Real provider '
+                'capabilities and actual prices will come from the secure admin catalog.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
               const SizedBox(height: 11),
               if (profile.supportsNegativePrompt)
                 TextField(
@@ -1176,8 +1563,9 @@ class _GenerationPageState extends State<GenerationPage> {
                 TextField(
                   controller: seedText,
                   keyboardType: TextInputType.number,
-                  decoration:
-                      const InputDecoration(labelText: 'Seed (optional)'),
+                  decoration: const InputDecoration(
+                    labelText: 'Seed (optional)',
+                  ),
                 ),
               if (profile.supportsSound)
                 SwitchListTile(
@@ -1188,21 +1576,24 @@ class _GenerationPageState extends State<GenerationPage> {
                 ),
               const SizedBox(height: 9),
               Text(
-                  'Supports ${profile.maxActors} actors; '
-                  '${profile.attachments.length} reference media types.',
-                  style: Theme.of(context).textTheme.bodySmall),
+                'Supports ${profile.maxActors} actors; '
+                '${profile.attachments.length} reference media types.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ],
           ),
           const SizedBox(height: 14),
-          Builder(builder: (context) {
-            final quote = profile.quoteCredits(seconds, ratio);
-            return Text(
-              quote == null
-                  ? 'Generation cost: not configured. No charge will be made.'
-                  : 'Estimated cost: $quote HOTICE Credits (demo only)',
-              style: Theme.of(context).textTheme.bodyMedium,
-            );
-          }),
+          Builder(
+            builder: (context) {
+              final quote = profile.quoteCredits(seconds, ratio);
+              return Text(
+                quote == null
+                    ? 'Generation cost: not configured. No charge will be made.'
+                    : 'Estimated cost: $quote HOTICE Credits (demo only)',
+                style: Theme.of(context).textTheme.bodyMedium,
+              );
+            },
+          ),
           const SizedBox(height: 20),
           PrimaryButton(
             label: 'Save generation draft',
@@ -1212,55 +1603,63 @@ class _GenerationPageState extends State<GenerationPage> {
         ],
       ),
     );
-    final preview = Column(children: [
-      StudioPanel(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Scene preview',
-                style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 13),
-            const FilmPreview(title: 'THE NEXT FRAME'),
-            const SizedBox(height: 12),
-            const Text('No video rendered — placeholder preview.',
-                style: TextStyle(fontSize: 12)),
-          ],
-        ),
-      ),
-      const SizedBox(height: 15),
-      StudioPanel(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Saved drafts',
-                style: Theme.of(context).textTheme.titleMedium),
-            if (!widget.store.drafts.any((item) => item.projectId == project))
-              const Padding(
-                padding: EdgeInsets.only(top: 12),
-                child: Text('Your draft history will appear here.'),
+    final preview = Column(
+      children: [
+        StudioPanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Scene preview',
+                style: Theme.of(context).textTheme.titleLarge,
               ),
-            for (final draft in widget.store.drafts
-                .where((item) => item.projectId == project)
-                .take(4))
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.movie_creation_outlined),
-                title: Text(draft.project),
-                subtitle: Text(
-                  draft.avatarName == 'None'
-                      ? draft.prompt
-                      : '${draft.prompt}\nAvatar: ${draft.avatarName}',
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
+              const SizedBox(height: 13),
+              const FilmPreview(title: 'THE NEXT FRAME'),
+              const SizedBox(height: 12),
+              const Text(
+                'No video rendered — placeholder preview.',
+                style: TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 15),
+        StudioPanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Saved drafts',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              if (!widget.store.drafts.any((item) => item.projectId == project))
+                const Padding(
+                  padding: EdgeInsets.only(top: 12),
+                  child: Text('Your draft history will appear here.'),
                 ),
-                trailing: Text(draft.durationSeconds.toString() + 's'),
-              ),
-          ],
+              for (final draft in widget.store.drafts
+                  .where((item) => item.projectId == project)
+                  .take(4))
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.movie_creation_outlined),
+                  title: Text(draft.project),
+                  subtitle: Text(
+                    draft.avatarName == 'None'
+                        ? draft.prompt
+                        : '${draft.prompt}\nAvatar: ${draft.avatarName}',
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: Text(draft.durationSeconds.toString() + 's'),
+                ),
+            ],
+          ),
         ),
-      ),
-      const SizedBox(height: 15),
-      _mockGenerationPanel(),
-    ]);
+        const SizedBox(height: 15),
+        _mockGenerationPanel(),
+      ],
+    );
     return PageFrame(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1275,23 +1674,23 @@ class _GenerationPageState extends State<GenerationPage> {
             'is a mock dry run that creates job metadata only and uses simulated credits.',
           ),
           const SizedBox(height: 20),
-          LayoutBuilder(builder: (context, constraints) {
-            if (constraints.maxWidth > 760) {
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(flex: 6, child: editor),
-                  const SizedBox(width: 18),
-                  Expanded(flex: 5, child: preview),
-                ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth > 760) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 6, child: editor),
+                    const SizedBox(width: 18),
+                    Expanded(flex: 5, child: preview),
+                  ],
+                );
+              }
+              return Column(
+                children: [editor, const SizedBox(height: 16), preview],
               );
-            }
-            return Column(children: [
-              editor,
-              const SizedBox(height: 16),
-              preview,
-            ]);
-          }),
+            },
+          ),
         ],
       ),
     );

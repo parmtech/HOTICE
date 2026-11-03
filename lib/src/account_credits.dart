@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'state.dart';
+import 'model_compatibility_page.dart';
 import 'design.dart';
 import 'account_api.dart';
 
@@ -177,91 +178,69 @@ class SettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => PageFrame(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const PageTitle(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const PageTitle(
               eyebrow: 'Personalise your space',
               title: 'Appearance & settings',
-              subtitle: 'Make HOTICE feel like your own professional studio.',
-            ),
-            StudioPanel(
+              subtitle: 'Make HOTICE feel like your own professional studio.'),
+          const DemoNotice(
+              'Theme preferences and security controls are demo previews.'),
+          StudioPanel(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Display mode',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      for (final mode in ThemeMode.values)
-                        ChoiceChip(
-                          label: Text(mode.name.toUpperCase()),
-                          selected: store.themeMode == mode,
-                          onSelected: (_) => store.updateTheme(mode),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 25),
-                  Text(
-                    'Colour themes',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      for (final option in StudioAccent.values)
-                        ChoiceChip(
-                          avatar: CircleAvatar(
-                            radius: 8,
-                            backgroundColor: option.color,
-                          ),
-                          label: Text(option.label),
-                          selected: store.accent == option,
-                          onSelected: (_) => store.updateAccent(option),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 23),
-                  Text('Typography',
-                      style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 9,
-                    runSpacing: 9,
-                    children: [
-                      for (final option in StudioFont.values)
-                        ChoiceChip(
-                          label: Text(option.label),
-                          selected: store.font == option,
-                          onSelected: (_) => store.updateFont(option),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 21),
-                  const DemoNotice(
-                    'Theme preferences are held in memory. Persistence and cloud synchronisation come later.',
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 17),
-            const StudioPanel(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text('Display mode',
+                    style: Theme.of(context).textTheme.titleMedium),
+                Wrap(spacing: 8, children: [
+                  for (final mode in ThemeMode.values)
+                    ChoiceChip(
+                        label: Text(switch (mode) {
+                          ThemeMode.system => 'System',
+                          ThemeMode.light => 'Light',
+                          ThemeMode.dark => 'Dark',
+                        }),
+                        selected: store.themeMode == mode,
+                        onSelected: (_) => store.updateTheme(mode))
+                ]),
+                const SizedBox(height: 12),
+                Text('Accent', style: Theme.of(context).textTheme.titleMedium),
+                Wrap(spacing: 8, children: [
+                  for (final accent in StudioAccent.values)
+                    ChoiceChip(
+                        label: Text(accent.label),
+                        selected: store.accent == accent,
+                        onSelected: (_) => store.updateAccent(accent))
+                ]),
+                const SizedBox(height: 12),
+                Text('Typography',
+                    style: Theme.of(context).textTheme.titleMedium),
+                Wrap(spacing: 8, children: [
+                  for (final font in StudioFont.values)
+                    ChoiceChip(
+                        label: Text(font.label),
+                        selected: store.font == font,
+                        onSelected: (_) => store.updateFont(font))
+                ]),
+              ])),
+          const SizedBox(height: 17),
+          StudioPanel(
               child: ListTile(
-                leading: Icon(Icons.security_outlined),
-                title: Text('Security & privacy'),
-                subtitle: Text(
-                  'Verified account sessions and privacy controls are on the roadmap.',
-                ),
-              ),
-            ),
-          ],
-        ),
+                  key: const ValueKey('model-compatibility-open'),
+                  leading: const Icon(Icons.hub_outlined),
+                  title: const Text('AI model compatibility'),
+                  subtitle: const Text(
+                      'Official API model profiles, limits and retired versions.'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const ModelCompatibilityPage())))),
+          const SizedBox(height: 17),
+          const StudioPanel(
+              child: ListTile(
+                  leading: Icon(Icons.security_outlined),
+                  title: Text('Security & privacy'),
+                  subtitle: Text(
+                      'Authentication, privacy controls and durable settings are still on the production roadmap.'))),
+        ]),
       );
 }
 

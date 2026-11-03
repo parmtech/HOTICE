@@ -17,6 +17,7 @@ dependencies:
   just_audio: ^0.10.6
   cryptography: ^2.9.0
   path_provider: ^2.1.6
+  camera_android: ^0.10.12 # Camera2 NV21 ML Kit compatibility on Android
 
 dev_dependencies:
   flutter_test:
