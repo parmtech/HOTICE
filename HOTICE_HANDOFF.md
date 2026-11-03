@@ -710,3 +710,26 @@ Repository references: [release issue #33](https://github.com/parmtech/HOTICE/is
   Android APK and emulator smoke. Keep PR draft until review and integration.
   This adds client UX evidence only; it does not satisfy live-provider or
   release-candidate gates.
+
+## Latest continuation: storage quota upload preflight
+
+- Draft PR #85 (`feat/web-cloud-upload-quota-preflight`) is stacked on PR #84
+  → #83 → #82 → #71, at head
+  `c1cb5ac6c6ec97e0f9636e93a47fe1341f4349b9`. Before per-file confirmation,
+  the client refreshes the authenticated profile and checks server-reported
+  free space. An over-quota file is stopped before confirmation and before any
+  media request; the local file remains unchanged. Missing/invalid quota,
+  session change, consent revocation or project switch also stop the flow.
+  The backend remains the final quota authority when another client changes
+  usage after preflight.
+- Local JS syntax, static web verification and Chromium E2E passed. The dry
+  run offers 20 B for a 21 B synthetic clip, proves confirmation count and
+  upload request count both remain zero, then restores quota and proves the
+  same file uploads after one confirmation. All 11 scenarios passed with
+  `realProviderCalls=0`.
+- Exact-head client CI run
+  [41698631895](https://github.com/parmtech/HOTICE/actions/runs/41698631895)
+  is queued. PR #84 run 41698095222 has static web/catalog and Flutter analysis
+  passing; APK and emulator jobs are active.
+- Keep #85 draft. No real provider/payment calls or deployment. Release remains
+  NOT READY TO PUBLISH.
