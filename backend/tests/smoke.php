@@ -32,6 +32,26 @@ check($providerRegistry->enabledModelIds() === [Hotice\MockProviderAdapter::MODE
 check($providerRegistry->forModel(Hotice\MockProviderAdapter::MODEL_ID) === $mockProvider, 'model routes to its registered adapter');
 try { $providerRegistry->forModel('unknown.provider.model'); check(false, 'unknown provider model fails closed'); } catch (ApiError $e) { check($e->status === 422, 'unknown provider model fails closed'); }
 $providerRequest = new Hotice\ProviderRequest(Hotice\MockProviderAdapter::MODEL_ID, 'synthetic prompt must not be returned', [], ['simulate' => 'success', 'attempt' => 1]);
+check($providerRegistry->validateRequest($providerRequest) === $mockProvider, 'model capability accepts its supported empty attachment set');
+$providerMedia = ['mediaId' => Support::uuid(), 'role' => 'reference_image', 'mime' => 'image/jpeg', 'byteSize' => 1024, 'sha256' => str_repeat('a', 64)];
+try { new Hotice\ProviderRequest(Hotice\MockProviderAdapter::MODEL_ID, 'prompt', [$providerMedia + ['path' => '/private/file']]); check(false, 'provider attachment rejects local path metadata'); } catch (InvalidArgumentException) { check(true, 'provider attachment rejects local path metadata'); }
+try { $providerRegistry->validateRequest(new Hotice\ProviderRequest(Hotice\MockProviderAdapter::MODEL_ID, 'prompt', [$providerMedia])); check(false, 'mock model rejects unsupported attachment before dispatch'); } catch (ApiError $e) { check($e->status === 422, 'mock model rejects unsupported attachment before dispatch'); }
+$imageAdapter = new class implements Hotice\ProviderAdapter {
+    public function id(): string { return 'fixture'; }
+    public function modelCapabilities(): array { return [new Hotice\ProviderModelCapabilities('fixture.video.v1', ['reference_image' => ['image/jpeg', 'image/png']], 2, 2 * 1024 * 1024)]; }
+    public function submit(Hotice\ProviderRequest $request, string $idempotencyKey): Hotice\ProviderOperation { return new Hotice\ProviderOperation(Support::uuid(), 'queued'); }
+    public function poll(string $operationId): Hotice\ProviderOperation { return new Hotice\ProviderOperation($operationId, 'processing'); }
+    public function cancel(string $operationId): Hotice\ProviderOperation { return new Hotice\ProviderOperation($operationId, 'cancelled'); }
+};
+$capabilityRegistry = new Hotice\ProviderRegistry([$imageAdapter]);
+check($capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [$providerMedia])) === $imageAdapter, 'declared reference image capability accepts metadata-only attachment');
+try { $capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [array_merge($providerMedia, ['mime' => 'video/mp4'])])); check(false, 'model rejects unsupported attachment MIME before dispatch'); } catch (ApiError $e) { check($e->status === 422, 'model rejects unsupported attachment MIME before dispatch'); }
+try { $capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [
+    $providerMedia,
+    array_merge($providerMedia, ['mediaId' => Support::uuid(), 'byteSize' => 1024 * 1024 + 1]),
+])); check(false, 'model enforces aggregate attachment byte limit'); } catch (ApiError $e) { check($e->status === 422, 'model enforces aggregate attachment byte limit'); }
+try { new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [$providerMedia, $providerMedia]); check(false, 'duplicate media IDs rejected before dispatch'); } catch (InvalidArgumentException) { check(true, 'duplicate media IDs rejected before dispatch'); }
+try { new Hotice\ProviderModelCapabilities('fixture.video.v1', ['reference_image' => ['image/jpeg']], 2, 0); check(false, 'attachment capabilities require a positive byte limit'); } catch (InvalidArgumentException) { check(true, 'attachment capabilities require a positive byte limit'); }
 $providerOperation = $mockProvider->submit($providerRequest, str_repeat('a', 64));
 check($providerOperation->status === 'queued', 'mock provider submit is asynchronous');
 check($mockProvider->submit($providerRequest, str_repeat('a', 64))->operationId === $providerOperation->operationId, 'provider idempotency reuses operation');

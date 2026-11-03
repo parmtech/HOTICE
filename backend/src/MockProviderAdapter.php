@@ -15,7 +15,7 @@ final class MockProviderAdapter implements ProviderAdapter
 
     public function id(): string { return 'mock'; }
 
-    public function modelIds(): array { return [self::MODEL_ID]; }
+    public function modelCapabilities(): array { return [new ProviderModelCapabilities(self::MODEL_ID)]; }
 
     public function submit(ProviderRequest $request, string $idempotencyKey): ProviderOperation
     {

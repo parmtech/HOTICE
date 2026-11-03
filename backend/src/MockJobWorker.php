@@ -103,13 +103,13 @@ final class MockJobWorker
         $scenario = $job['request']['simulate'] ?? 'success';
         $attempt = (int)$job['attempt_count'];
         $registry = new ProviderRegistry([new MockProviderAdapter()]);
-        $adapter = $registry->forModel((string)$job['request']['modelId']);
         $providerRequest = new ProviderRequest(
             (string)$job['request']['modelId'],
             '', // Prompts are deliberately absent from the durable dry-run queue row.
             [],
             ['simulate' => $scenario, 'attempt' => $attempt],
         );
+        $adapter = $registry->validateRequest($providerRequest);
         $dispatch = $db->prepare("UPDATE provider_attempts SET status='dispatching' WHERE id=? AND lease_token=? AND status='prepared'");
         $dispatch->execute([$job['provider_attempt_id'], $job['lease_token']]);
         if ($dispatch->rowCount() !== 1) return ['jobId' => $job['id'], 'status' => 'lease_lost'];
