@@ -502,6 +502,7 @@
   let accountApiOrigin = null;
   let accountCanWriteCloud = false;
   let accountCanReadCloud = false;
+  let cloudStorage = null;
   try {
     const configured = (apiOriginMeta?.content || '').trim();
     const parsed = new URL(configured);
@@ -604,6 +605,7 @@
       if (xhr.status === 201 && result?.id === fileId && result.scanStatus === 'pending') {
         clip.cloudFileId = fileId;
         clip.uploadMessage = 'Uploaded privately. Security scan pending; this media cannot be used yet.';
+        await refreshCloudStorageFromProfile();
       } else if (xhr.status === 0 || xhr.status >= 500 || xhr.status === 201) {
         await reconcileMediaUpload(clip, local, fileId);
       } else {
@@ -909,6 +911,51 @@
 
   function projectStatus(message) { status('projectStatus', message); }
   function cloudProjectStatus(message) { status('cloudProjectStatus', message); }
+
+  function formatStorageBytes(value) {
+    if (value < 1024) return value + ' B';
+    const units = ['KiB', 'MiB', 'GiB', 'TiB'];
+    let amount = value;
+    let unit = -1;
+    do { amount /= 1024; unit++; } while (amount >= 1024 && unit < units.length - 1);
+    return amount.toLocaleString(undefined, {maximumFractionDigits: amount < 10 ? 1 : 0}) + ' ' + units[unit];
+  }
+
+  function refreshCloudStorageUsage() {
+    const root = get('cloudStorageUsage');
+    if (!root) return;
+    root.replaceChildren();
+    if (!accountToken || !accountCanReadCloud || !cloudStorage) {
+      root.hidden = true;
+      return;
+    }
+    const {quotaBytes, usedBytes} = cloudStorage;
+    const label = document.createElement('div');
+    label.textContent = `Cloud storage · ${formatStorageBytes(usedBytes)} used of ${formatStorageBytes(quotaBytes)}`;
+    const remaining = document.createElement('small');
+    remaining.textContent = `${formatStorageBytes(Math.max(0, quotaBytes - usedBytes))} available`;
+    const progress = document.createElement('progress');
+    progress.max = quotaBytes || 1;
+    progress.value = Math.min(usedBytes, quotaBytes);
+    progress.setAttribute('aria-label', 'Cloud storage used');
+    root.append(label, progress, remaining);
+    root.hidden = false;
+  }
+
+  async function refreshCloudStorageFromProfile(token = accountToken) {
+    if (!token) return;
+    try {
+      const profile = await accountApi('/v1/me', {token});
+      const quotaBytes = profile.cloud?.quotaBytes;
+      const usedBytes = profile.cloud?.usedBytes;
+      if (accountToken !== token || !Number.isSafeInteger(quotaBytes) || quotaBytes < 0 ||
+          !Number.isSafeInteger(usedBytes) || usedBytes < 0) return;
+      cloudStorage = {quotaBytes, usedBytes};
+      refreshCloudStorageUsage();
+    } catch (_) {
+      // Keep the last server-confirmed quota visible if a background refresh fails.
+    }
+  }
 
   function mockJobStatus(message) { status('mockGenerationStatus', message); }
 
@@ -1221,6 +1268,7 @@
     const canWrite = cloudActionAllowed(true);
     const load = get('loadCloudProjects');
     if (load) load.disabled = !canRead;
+    refreshCloudStorageUsage();
     get('localProjects')?.querySelectorAll('button').forEach((button) => {
       if (button.textContent === 'Sync to cloud' || button.textContent === 'Sync updates' ||
           button.textContent === 'Upload as separate cloud copy') button.disabled = !canWrite;
@@ -1449,6 +1497,7 @@
         method: 'DELETE', token: accountToken,
       });
       if (response.deleted !== true) throw new Error('Cloud file deletion was not confirmed.');
+      await refreshCloudStorageFromProfile();
       if (remotePreviewFileId === file.id) resetVideo();
       for (const clip of clips) if (clip.cloudFileId === file.id) {
         clip.cloudFileId = null;
@@ -1512,6 +1561,8 @@
 
   function showAccountForm(message) {
     accountToken = null;
+    cloudStorage = null;
+    refreshCloudStorageUsage();
     resetAccountPreferences();
     mockGenerationEnabled = false;
     currentMockQuote = null;
@@ -1549,6 +1600,9 @@
       accountToken = issuedToken;
       accountCanWriteCloud = profile.cloud?.active === true;
       accountCanReadCloud = profile.cloud?.readable === true;
+      cloudStorage = Number.isSafeInteger(profile.cloud?.quotaBytes) && profile.cloud.quotaBytes >= 0 &&
+        Number.isSafeInteger(profile.cloud?.usedBytes) && profile.cloud.usedBytes >= 0
+        ? {quotaBytes: profile.cloud.quotaBytes, usedBytes: profile.cloud.usedBytes} : null;
       mockGenerationEnabled = profile.mockGeneration?.enabled === true;
       get('accountIdentity').textContent = returnedEmail;
       get('accountCloudStatus').textContent = accountCanWriteCloud
@@ -1571,6 +1625,8 @@
         accountApi('/v1/auth/logout', {method: 'POST', token: issuedToken}).catch(() => {});
       }
       accountToken = null;
+      cloudStorage = null;
+      refreshCloudStorageUsage();
       status('accountStatus', error.status === 401
         ? 'Sign-in was not accepted. Check the email and password.'
         : error.status === 403
@@ -1585,6 +1641,8 @@
   get('accountSignOut')?.addEventListener('click', async () => {
     const token = accountToken;
     accountToken = null;
+    cloudStorage = null;
+    refreshCloudStorageUsage();
     resetAccountPreferences();
     mockGenerationEnabled = false;
     currentMockQuote = null;
@@ -1668,6 +1726,8 @@
         throw new Error('Invalid HOTICE account deletion response.');
       }
       accountToken = null;
+      cloudStorage = null;
+      refreshCloudStorageUsage();
       resetAccountPreferences();
       mockGenerationEnabled = false;
       currentMockQuote = null;
@@ -1702,6 +1762,8 @@
   window.addEventListener('pagehide', () => {
     const token = accountToken;
     accountToken = null;
+    cloudStorage = null;
+    refreshCloudStorageUsage();
     mockGenerationEnabled = false;
     currentMockQuote = null;
     accountCanWriteCloud = false;
