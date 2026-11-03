@@ -1,5 +1,20 @@
 # HOTICE — LATEST DEVELOPMENT HANDOFF (26 OCTOBER 2026)
 
+> **3 November 2026 — backend account deletion response safety (review branch):**
+> After the account and private-media retry queue have committed, a failure
+> while deleting a cleanup queue row must not convert the irreversible account
+> deletion into an HTTP 500. Draft branch `fix/account-deletion-postcommit-safety`
+> (child of backend PR #57) catches and logs generic cleanup exceptions,
+> preserves retryable queue entries, and returns a 200 deletion confirmation.
+> Added a CI integration fixture that injects a MySQL queue-delete exception
+> and then verifies session revocation, durable queue retention and worker retry.
+> **Run the backend exact-head CI to verify this; this note alone is not
+> validation.** Flutter draft #59 is independently green at run
+> [41549358327](https://github.com/parmtech/HOTICE/actions/runs/41549358327),
+> but the client/backend branches have not been merged into an integration
+> release. HOTICE remains **NOT READY TO PUBLISH**.
+
+
 **Canonical repository:** https://github.com/parmtech/HOTICE  
 **New work branch:** `feat/android-preview-music-studio` (compare to `main`)  
 **Product brand:** HOTICE only  
