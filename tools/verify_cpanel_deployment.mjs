@@ -32,6 +32,7 @@ const SECRET_PATHS = [
   '/private-media/.htaccess',
   '/private-media/index.php',
 ];
+const MAX_HEALTH_BODY_BYTES = 8192;
 
 function deploymentOrigin(input) {
   let url;
@@ -47,6 +48,34 @@ function deploymentOrigin(input) {
   return url.origin;
 }
 
+async function readHealthJson(response) {
+  if (!response.body) throw new Error('Health response body is empty.');
+  const reader = response.body.getReader();
+  const chunks = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > MAX_HEALTH_BODY_BYTES) {
+        await reader.cancel();
+        throw new RangeError('Health response body exceeds its size limit.');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+}
+
 async function verifyDeployment(input, fetchImpl = fetch, { timeoutMs = 8000 } = {}) {
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new Error('The per-request timeout must be between 1 and 30000 milliseconds.');
@@ -57,23 +86,37 @@ async function verifyDeployment(input, fetchImpl = fetch, { timeoutMs = 8000 } =
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetchImpl(`${origin}${path}`, {
+      const response = await fetchImpl(`${origin}${path}`, {
         method: 'GET',
         redirect: 'manual',
         cache: 'no-store',
         signal: controller.signal,
         headers: { Accept: 'application/json', ...headers },
       });
+      let released = false;
+      return {
+        response,
+        release: async () => {
+          if (released) return;
+          released = true;
+          clearTimeout(timeout);
+          controller.abort();
+          try {
+            const cancellation = response.body?.cancel();
+            if (cancellation && typeof cancellation.catch === 'function') void cancellation.catch(() => {});
+          } catch { /* body may already be consumed */ }
+        },
+      };
     } catch {
+      clearTimeout(timeout);
       failures.push(`${path}: request failed`);
       return null;
-    } finally {
-      clearTimeout(timeout);
     }
   };
 
-  const health = await request('/health');
-  if (health) {
+  const healthProbe = await request('/health');
+  if (healthProbe) {
+    const health = healthProbe.response;
     if (health.status !== 200) failures.push(`/health: expected HTTP 200, received ${health.status}`);
     const contentType = health.headers.get('content-type') || '';
     if (!contentType.toLowerCase().includes('application/json')) failures.push('/health: response is not JSON');
@@ -101,28 +144,38 @@ async function verifyDeployment(input, fetchImpl = fetch, { timeoutMs = 8000 } =
       failures.push('/health: request ID header is missing or malformed');
     }
     try {
-      const body = await health.json();
+      const body = await readHealthJson(health);
       if (body?.service !== 'HOTICE API' || body?.status !== 'ok') {
         failures.push('/health: response does not identify a healthy HOTICE API');
       }
-    } catch {
-      failures.push('/health: response body is not valid JSON');
+    } catch (error) {
+      if (error instanceof RangeError) {
+        failures.push('/health: response body exceeds the 8192-byte limit');
+      } else if (error?.name === 'AbortError' || error?.name === 'TimeoutError') {
+        failures.push('/health: response body request timed out');
+      } else {
+        failures.push('/health: response body is not valid JSON');
+      }
+    } finally {
+      await healthProbe.release();
     }
   }
 
-  const foreignOrigin = await request('/health', { Origin: 'https://hotice-probe.invalid' });
-  if (foreignOrigin && foreignOrigin.status !== 403) {
-    failures.push(`/health: unlisted browser origin must receive HTTP 403, received ${foreignOrigin.status}`);
+  const foreignOriginProbe = await request('/health', { Origin: 'https://hotice-probe.invalid' });
+  if (foreignOriginProbe && foreignOriginProbe.response.status !== 403) {
+    failures.push(`/health: unlisted browser origin must receive HTTP 403, received ${foreignOriginProbe.response.status}`);
   }
-  if (foreignOrigin && foreignOrigin.headers.get('access-control-allow-origin')) {
+  if (foreignOriginProbe && foreignOriginProbe.response.headers.get('access-control-allow-origin')) {
     failures.push('/health: unlisted browser origin received an Access-Control-Allow-Origin header');
   }
+  await foreignOriginProbe?.release();
 
   for (const path of SECRET_PATHS) {
-    const response = await request(path);
-    if (response && ![401, 403, 404, 410].includes(response.status)) {
-      failures.push(`${path}: expected a blocked response (401/403/404/410), received ${response.status}`);
+    const probe = await request(path);
+    if (probe && ![401, 403, 404, 410].includes(probe.response.status)) {
+      failures.push(`${path}: expected a blocked response (401/403/404/410), received ${probe.response.status}`);
     }
+    await probe?.release();
   }
 
   return { ok: failures.length === 0, checkedPaths: SECRET_PATHS.length, failures };
