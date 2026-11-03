@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'account_api.dart';
 import 'state.dart';
 import 'video_models.dart';
 import 'avatar_identity.dart';
@@ -44,17 +46,34 @@ class ProjectsPage extends StatelessWidget {
   }
 
   Future<void> delete(BuildContext context, HotProject project) async {
-    final draftCount = store.drafts.where((draft) => draft.projectId == project.id).length;
-    final planCount = store.musicPlans.where((plan) => plan.projectId == project.id).length;
+    if (store.pendingMockSubmissionsFor(project.id).isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Resolve the pending mock request before deleting this project.',
+          ),
+        ),
+      );
+      return;
+    }
+    final draftCount =
+        store.drafts.where((draft) => draft.projectId == project.id).length;
+    final planCount =
+        store.musicPlans.where((plan) => plan.projectId == project.id).length;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Delete project?'),
-        content: Text('Delete "${project.title}" and its $draftCount saved scene drafts '
-            'and $planCount storyboards from this demo session? This cannot be undone.'),
+        content: Text(
+            'Delete "${project.title}" and its $draftCount saved scene drafts '
+            'and $planCount storyboards from this device? This cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Delete project')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Delete project')),
         ],
       ),
     );
@@ -84,17 +103,18 @@ class ProjectsPage extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           const DemoNotice(
-            'Demo only: projects, scenes and storyboards are stored in memory '
-            'and will be lost when the app restarts. Device storage and '
-            'paid cloud backup are not connected yet.',
+            'Projects and scene plans are kept in encrypted device storage. '
+            'Optional cloud copies need sign-in and your consent. Source media '
+            'stays on this device unless a separate upload flow is offered.',
           ),
           const SizedBox(height: 22),
           if (store.projects.isEmpty)
-            StudioPanel(child: Column(
+            StudioPanel(
+                child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.movie_creation_outlined, size: 36,
-                    color: Theme.of(context).colorScheme.primary),
+                Icon(Icons.movie_creation_outlined,
+                    size: 36, color: Theme.of(context).colorScheme.primary),
                 const SizedBox(height: 12),
                 Text('Your next film starts here',
                     style: Theme.of(context).textTheme.titleMedium),
@@ -108,8 +128,8 @@ class ProjectsPage extends StatelessWidget {
                 : box.maxWidth > 520
                     ? 2
                     : 1;
-            final width = ((box.maxWidth - (columns - 1) * 14) /
-                    columns).clamp(0.0, 1160.0);
+            final width = ((box.maxWidth - (columns - 1) * 14) / columns)
+                .clamp(0.0, 1160.0);
             return Wrap(
               spacing: 14,
               runSpacing: 14,
@@ -127,42 +147,56 @@ class ProjectsPage extends StatelessWidget {
                         child: Padding(
                           padding: const EdgeInsets.all(12),
                           child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            FilmPreview(title: project.title),
-                            const SizedBox(height: 12),
-                            LayoutBuilder(builder: (context, constraints) {
-                              final title = Text(project.title, maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.titleMedium);
-                              final menu = PopupMenuButton<String>(
-                                key: ValueKey('project-options-${project.id}'),
-                                tooltip: 'Project options',
-                                icon: const Icon(Icons.more_vert_rounded),
-                                onSelected: (action) async {
-                                  if (action == 'rename') await rename(context, project);
-                                  if (action == 'delete') await delete(context, project);
-                                },
-                                itemBuilder: (_) => const [
-                                  PopupMenuItem(value: 'rename', child: Text('Rename')),
-                                  PopupMenuItem(value: 'delete', child: Text('Delete')),
-                                ],
-                              );
-                              if (constraints.maxWidth < 64) {
-                                return Column(crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [title, menu]);
-                              }
-                              return Row(children: [Expanded(child: title), menu]);
-                            }),
-                            const SizedBox(height: 6),
-                            Text('${store.drafts.where((item) => item.projectId == project.id).length} '
-                                'scene drafts · ${store.musicPlans.where((item) => item.projectId == project.id).length} '
-                                'storyboards', maxLines: 2, overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.bodySmall),
-                            const SizedBox(height: 6),
-                            const Text('Open project →',
-                                style: TextStyle(fontSize: 12)),
-                          ],
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              FilmPreview(title: project.title),
+                              const SizedBox(height: 12),
+                              LayoutBuilder(builder: (context, constraints) {
+                                final title = Text(project.title,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium);
+                                final menu = PopupMenuButton<String>(
+                                  key:
+                                      ValueKey('project-options-${project.id}'),
+                                  tooltip: 'Project options',
+                                  icon: const Icon(Icons.more_vert_rounded),
+                                  onSelected: (action) async {
+                                    if (action == 'rename')
+                                      await rename(context, project);
+                                    if (action == 'delete')
+                                      await delete(context, project);
+                                  },
+                                  itemBuilder: (_) => const [
+                                    PopupMenuItem(
+                                        value: 'rename', child: Text('Rename')),
+                                    PopupMenuItem(
+                                        value: 'delete', child: Text('Delete')),
+                                  ],
+                                );
+                                if (constraints.maxWidth < 64) {
+                                  return Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [title, menu]);
+                                }
+                                return Row(
+                                    children: [Expanded(child: title), menu]);
+                              }),
+                              const SizedBox(height: 6),
+                              Text(
+                                  '${store.drafts.where((item) => item.projectId == project.id).length} '
+                                  'scene drafts · ${store.musicPlans.where((item) => item.projectId == project.id).length} '
+                                  'storyboards',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodySmall),
+                              const SizedBox(height: 6),
+                              const Text('Open project →',
+                                  style: TextStyle(fontSize: 12)),
+                            ],
                           ),
                         ),
                       ),
@@ -179,12 +213,18 @@ class ProjectsPage extends StatelessWidget {
 
 class GenerationPage extends StatefulWidget {
   final HotIceStore store;
+  final AccountApi? accountApi;
+  final String? authenticatedEmail;
+  final String? authenticatedUserId;
   final String? initialProjectId;
   final InspirationTemplate? initialTemplate;
   final int templateRevision;
   const GenerationPage({
     super.key,
     required this.store,
+    this.accountApi,
+    this.authenticatedEmail,
+    this.authenticatedUserId,
     this.initialProjectId,
     this.initialTemplate,
     this.templateRevision = 0,
@@ -220,6 +260,15 @@ class _GenerationPageState extends State<GenerationPage> {
   bool soundEnabled = false;
   bool advancedOpen = false;
   InspirationTemplate? selectedTemplate;
+  MockGenerationAvailability? _mockAvailability;
+  MockGenerationQuote? _mockQuote;
+  String? _quotedPrompt;
+  String? _quotedIntentKey;
+  String? _mockStatus;
+  bool _checkingMockAvailability = false;
+  bool _loadingMockJobs = false;
+  bool _submittingMockJob = false;
+  List<MockGenerationJob> _mockJobs = const [];
 
   @override
   void initState() {
@@ -227,6 +276,501 @@ class _GenerationPageState extends State<GenerationPage> {
     project = widget.initialProjectId ??
         (widget.store.projects.isEmpty ? null : widget.store.projects.first.id);
     if (widget.initialTemplate != null) _applyTemplate(widget.initialTemplate!);
+    prompt.addListener(_invalidateStaleMockQuote);
+  }
+
+  void _invalidateMockQuote() {
+    if (_mockQuote == null && _quotedPrompt == null) return;
+    _mockQuote = null;
+    _quotedPrompt = null;
+    _quotedIntentKey = null;
+  }
+
+  void _invalidateStaleMockQuote() {
+    if (_mockQuote != null &&
+        _quotedIntentKey == null &&
+        _quotedPrompt != prompt.text.trim()) {
+      setState(_invalidateMockQuote);
+    }
+  }
+
+  Future<void> _checkMockGenerationAvailability() async {
+    final api = widget.accountApi;
+    if (api == null || !api.isConfigured || widget.authenticatedEmail == null) {
+      setState(() => _mockStatus =
+          'Sign in to a configured HOTICE server to check dry-run availability.');
+      return;
+    }
+    setState(() {
+      _checkingMockAvailability = true;
+      _mockStatus = 'Checking whether this HOTICE server allows mock dry runs…';
+    });
+    try {
+      final availability = await api.getMockGenerationAvailability();
+      if (!mounted) return;
+      setState(() {
+        _mockAvailability = availability;
+        _mockStatus = availability.enabled
+            ? 'Server mock queue is available. It creates job metadata only; no video or provider call.'
+            : 'Mock generation is disabled on this server. Your local project is unchanged.';
+      });
+    } on AccountApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _mockAvailability = null;
+        _mockStatus = error.statusCode == 401 || error.statusCode == 403
+            ? 'Your secure account session is unavailable. Sign in again to check the mock queue.'
+            : 'Could not check the server. Your prompt and local project remain on this device.';
+      });
+    } finally {
+      if (mounted) setState(() => _checkingMockAvailability = false);
+    }
+  }
+
+  Future<void> _requestMockQuote({PendingMockSubmission? pending}) async {
+    final api = widget.accountApi;
+    final userId = widget.authenticatedUserId;
+    if (api == null || widget.authenticatedEmail == null || userId == null) {
+      return;
+    }
+    if (pending != null && pending.accountUserId != userId) {
+      setState(() => _mockStatus =
+          'This safe retry belongs to another HOTICE account. Sign in to that account before resuming it.');
+      return;
+    }
+    final text = pending?.prompt ?? prompt.text.trim();
+    final projectId = pending?.projectId ?? project;
+    if (projectId == null || !isCloudProjectId(projectId)) {
+      setState(() => _mockStatus =
+          'Create a personal project before starting a server dry run.');
+      return;
+    }
+    if (text.isEmpty || text.length > 2000) {
+      setState(() =>
+          _mockStatus = 'Enter a scene prompt between 1 and 2,000 characters.');
+      return;
+    }
+    setState(() {
+      _mockQuote = null;
+      _quotedPrompt = null;
+      _quotedIntentKey = null;
+      _checkingMockAvailability = true;
+      _mockStatus =
+          'Requesting a simulated-credit quote. Only this scene text is sent.';
+    });
+    try {
+      final availability =
+          _mockAvailability ?? await api.getMockGenerationAvailability();
+      if (!mounted) return;
+      if (!availability.enabled) {
+        setState(() {
+          _mockAvailability = availability;
+          _mockStatus =
+              'Mock generation is disabled on this server. No job was submitted.';
+        });
+        return;
+      }
+      final quote = await api.quoteMockGeneration(text);
+      if (!mounted) return;
+      setState(() {
+        _mockAvailability = availability;
+        _mockQuote = quote;
+        _quotedPrompt = text;
+        _quotedIntentKey = pending?.idempotencyKey;
+        _mockStatus =
+            'Quote: ${quote.credits} simulated credits. No money is charged and no video is rendered.';
+      });
+    } on AccountApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _mockStatus = error.statusCode == 503
+            ? 'Mock generation is disabled on this server.'
+            : 'Could not get a quote. Your scene remains local; check the connection and try again.';
+      });
+    } finally {
+      if (mounted) setState(() => _checkingMockAvailability = false);
+    }
+  }
+
+  Future<void> _startMockJob() async {
+    final api = widget.accountApi;
+    final quote = _mockQuote;
+    final text = _quotedPrompt;
+    if (api == null || quote == null || text == null || _submittingMockJob)
+      return;
+    if (_quotedIntentKey == null &&
+        (project == null || text != prompt.text.trim())) {
+      setState(() {
+        _invalidateMockQuote();
+        _mockStatus =
+            'The scene text or selected project changed. Request a fresh quote.';
+      });
+      return;
+    }
+    if (!quote.expiresAt.isAfter(DateTime.now())) {
+      setState(() {
+        _invalidateMockQuote();
+        _mockStatus =
+            'This quote expired. Request a fresh quote before submitting.';
+      });
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Start this mock dry run?'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                  'Only the scene text below will be sent to the HOTICE server. '
+                  'Actor identity notes, reference files, media, model preview settings, '
+                  'duration and aspect ratio are excluded.'),
+              const SizedBox(height: 12),
+              SelectableText(text),
+              const SizedBox(height: 12),
+              Text(
+                  '${quote.credits} simulated credits. No money is charged; no video is created.'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep local'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Confirm mock dry run'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+
+    PendingMockSubmission? intent;
+    try {
+      if (widget.authenticatedUserId == null) {
+        setState(() => _mockStatus =
+            'The authenticated account could not be verified. Sign in again before submitting.');
+        return;
+      }
+      if (_quotedIntentKey != null) {
+        final pending = widget.store.pendingMockSubmissions.where(
+          (item) => item.idempotencyKey == _quotedIntentKey,
+        );
+        intent = pending.isEmpty ? null : pending.first;
+        if (intent == null) {
+          setState(() => _mockStatus =
+              'The saved retry intent is no longer available. Keep this project and refresh its state.');
+          return;
+        }
+        if (intent.accountUserId != widget.authenticatedUserId) {
+          setState(() => _mockStatus =
+              'This safe retry belongs to another HOTICE account. Sign in to that account before resuming it.');
+          return;
+        }
+      } else {
+        final projectId = project;
+        if (projectId == null) return;
+        intent = PendingMockSubmission(
+          idempotencyKey: createLocalProjectId(),
+          accountUserId: widget.authenticatedUserId!,
+          projectId: projectId,
+          prompt: text,
+          createdAt: DateTime.now().toUtc(),
+        );
+        // Persist the stable idempotency key before the network call. A timeout
+        // can then be safely retried after app restart without double reserve.
+        widget.store.savePendingMockSubmission(intent);
+      }
+    } on StateError catch (error) {
+      setState(() => _mockStatus = error.message);
+      return;
+    }
+
+    setState(() {
+      _submittingMockJob = true;
+      _mockStatus =
+          'Submitting the confirmed mock job. The server will not call a video provider.';
+    });
+    try {
+      final job = await api.submitMockGeneration(
+        quoteToken: quote.token,
+        prompt: intent.prompt,
+        idempotencyKey: intent.idempotencyKey,
+      );
+      widget.store.removePendingMockSubmission(intent.idempotencyKey);
+      if (!mounted) return;
+      setState(() {
+        _invalidateMockQuote();
+        _mockStatus =
+            'Mock job ${job.status}. It is queue metadata only; no media was created.';
+        _mockAvailability = _mockAvailability == null
+            ? null
+            : MockGenerationAvailability(
+                enabled: _mockAvailability!.enabled,
+                credits: _mockAvailability!.credits == null
+                    ? null
+                    : (_mockAvailability!.credits! - job.reservedCredits)
+                        .clamp(0, 1 << 30),
+              );
+      });
+      await _refreshMockJobs(silent: true);
+    } on AccountApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _mockStatus = error.statusCode == 402
+            ? 'Not enough simulated credits. No money was charged. The safe retry is saved on this device.'
+            : error.statusCode == 409
+                ? 'The server rejected this quote or found a conflict. Your retry intent is retained; request a fresh quote to retry safely.'
+                : 'The server could not confirm the request. The same retry ID is saved locally to prevent a duplicate reservation.';
+      });
+    } finally {
+      if (mounted) setState(() => _submittingMockJob = false);
+    }
+  }
+
+  Future<void> _refreshMockJobs({bool silent = false}) async {
+    final api = widget.accountApi;
+    if (api == null || widget.authenticatedEmail == null || _loadingMockJobs)
+      return;
+    setState(() {
+      _loadingMockJobs = true;
+      if (!silent) _mockStatus = 'Refreshing your server job history…';
+    });
+    try {
+      final jobs = await api.listMockGenerationJobs();
+      if (!mounted) return;
+      setState(() {
+        _mockJobs = jobs;
+        if (!silent)
+          _mockStatus =
+              'Job history refreshed. Results are mock metadata; no video was generated.';
+      });
+    } on AccountApiException {
+      if (!mounted) return;
+      if (!silent) {
+        setState(() => _mockStatus =
+            'Could not refresh jobs. Your local project and pending retry intents are unchanged.');
+      }
+    } finally {
+      if (mounted) setState(() => _loadingMockJobs = false);
+    }
+  }
+
+  Future<void> _cancelMockJob(MockGenerationJob job) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel queued mock job?'),
+        content: Text(
+            'This cancels only a queued dry-run record and returns its ${job.reservedCredits} simulated credits. No video or provider request exists.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Keep job')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Cancel queued job')),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true || widget.accountApi == null) return;
+    try {
+      final updated = await widget.accountApi!.cancelMockGenerationJob(job.id);
+      if (!mounted) return;
+      setState(() {
+        _mockJobs = [
+          for (final current in _mockJobs)
+            current.id == updated.id ? updated : current
+        ];
+        _mockStatus = updated.status == 'cancelled'
+            ? 'Queued mock job cancelled; simulated credits were returned.'
+            : 'The server did not cancel this job. Refresh its status.';
+      });
+    } on AccountApiException catch (error) {
+      if (mounted) {
+        setState(() => _mockStatus = error.statusCode == 409
+            ? 'This job is no longer queued and cannot be cancelled.'
+            : 'Could not cancel the job. Refresh its status.');
+      }
+    }
+  }
+
+  Widget _mockGenerationPanel() {
+    final api = widget.accountApi;
+    final signedIn =
+        widget.authenticatedEmail != null && widget.authenticatedUserId != null;
+    final configured = api?.isConfigured == true;
+    final projectId = project;
+    final personalProject = projectId != null && isCloudProjectId(projectId);
+    final allPending = personalProject
+        ? widget.store.pendingMockSubmissionsFor(projectId)
+        : const <PendingMockSubmission>[];
+    final pending = allPending
+        .where((item) => item.accountUserId == widget.authenticatedUserId)
+        .toList(growable: false);
+    final hasOtherAccountIntent = allPending.any(
+      (item) => item.accountUserId != widget.authenticatedUserId,
+    );
+    final canQuote = signedIn &&
+        configured &&
+        personalProject &&
+        !hasOtherAccountIntent &&
+        _mockAvailability?.enabled == true &&
+        prompt.text.trim().isNotEmpty &&
+        !_checkingMockAvailability &&
+        !_submittingMockJob;
+
+    return StudioPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Backend dry-run workflow',
+              style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
+          const Text(
+            'Mock queue only. It does not generate video or call a paid AI provider. '
+            'A quote request sends only the scene text below; Actor details, reference files, '
+            'media, selected model preview, duration and aspect ratio are excluded.',
+          ),
+          const SizedBox(height: 10),
+          if (!signedIn)
+            const Text(
+                'Sign in to a HOTICE account to check this server workflow.'),
+          if (signedIn && !configured)
+            const Text(
+                'This build has no secure HOTICE service URL configured.'),
+          if (hasOtherAccountIntent)
+            const Text(
+              'A pending safe retry is tied to another HOTICE account. Sign in as that account to resolve it before starting a new request.',
+            ),
+          if (signedIn && configured) ...[
+            OutlinedButton.icon(
+              onPressed: _checkingMockAvailability || _submittingMockJob
+                  ? null
+                  : _checkMockGenerationAvailability,
+              icon: _checkingMockAvailability
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.cloud_done_outlined),
+              label: const Text('Check mock queue availability'),
+            ),
+            if (_mockAvailability?.enabled == true &&
+                _mockAvailability?.credits != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Simulated credit balance: ${_mockAvailability!.credits}. This has no cash value.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            const SizedBox(height: 8),
+            FilledButton.tonalIcon(
+              onPressed: canQuote ? () => _requestMockQuote() : null,
+              icon: const Icon(Icons.request_quote_outlined),
+              label: const Text('Request simulated-credit quote'),
+            ),
+            if (_mockQuote != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                '${_mockQuote!.credits} simulated credits · expires ${_mockQuote!.expiresAt.toLocal()}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 6),
+              FilledButton.icon(
+                onPressed: _submittingMockJob ? null : _startMockJob,
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: const Text('Review and start mock dry run'),
+              ),
+            ],
+            if (pending.isNotEmpty) ...[
+              const Divider(height: 24),
+              Text('Safe retries waiting on this device',
+                  style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 4),
+              const Text(
+                'An earlier request may have reached the server before the connection ended. '
+                'Retry keeps the same encrypted local request ID, so the server can return the '
+                'existing job instead of reserving simulated credits twice.',
+              ),
+              for (final intent in pending.take(3))
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    intent.prompt,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text('Saved ${intent.createdAt.toLocal()}'),
+                  trailing: TextButton(
+                    onPressed: _checkingMockAvailability || _submittingMockJob
+                        ? null
+                        : () => _requestMockQuote(pending: intent),
+                    child: const Text('Quote & retry'),
+                  ),
+                ),
+            ],
+            const Divider(height: 24),
+            OutlinedButton.icon(
+              onPressed: _loadingMockJobs || _submittingMockJob
+                  ? null
+                  : () => _refreshMockJobs(),
+              icon: _loadingMockJobs
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh_rounded),
+              label: const Text('Refresh my mock jobs'),
+            ),
+            for (final job in _mockJobs.take(10)) ...[
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  job.status == 'succeeded'
+                      ? Icons.check_circle_outline
+                      : job.status == 'failed'
+                          ? Icons.error_outline
+                          : job.status == 'cancelled'
+                              ? Icons.cancel_outlined
+                              : Icons.pending_outlined,
+                ),
+                title: Text('Mock job · ${job.status}'),
+                subtitle: Text(
+                  job.result != null
+                      ? 'Mock result metadata only. No video was created.'
+                      : job.errorCode == 'provider_outcome_unknown'
+                          ? 'Outcome needs server reconciliation; reserved simulated credits stay protected.'
+                          : '${job.reservedCredits} simulated credits reserved · no video is created.',
+                ),
+                trailing: job.status == 'queued'
+                    ? IconButton(
+                        tooltip: 'Cancel queued mock job',
+                        onPressed: _submittingMockJob
+                            ? null
+                            : () => _cancelMockJob(job),
+                        icon: const Icon(Icons.close_rounded),
+                      )
+                    : null,
+              ),
+            ],
+          ],
+          if (_mockStatus != null) ...[
+            const SizedBox(height: 6),
+            Semantics(
+              liveRegion: true,
+              child: Text(_mockStatus!),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   void _applyTemplate(InspirationTemplate entry) {
@@ -265,6 +809,7 @@ class _GenerationPageState extends State<GenerationPage> {
       _unsavedSeeds[current] = seedText.text;
       _unsavedSounds[current] = soundEnabled;
     }
+    _invalidateMockQuote();
     project = next;
     prompt.text = next == null ? '' : (_unsavedPrompts[next] ?? '');
     final savedModel = next == null ? null : _unsavedModels[next];
@@ -287,14 +832,20 @@ class _GenerationPageState extends State<GenerationPage> {
     }
     sceneActors
       ..clear()
-      ..addAll(next == null ? const <SceneActor>[] : (_unsavedActors[next] ?? const <SceneActor>[]));
+      ..addAll(next == null
+          ? const <SceneActor>[]
+          : (_unsavedActors[next] ?? const <SceneActor>[]));
     references
       ..clear()
-      ..addAll(next == null ? const <SceneReference>[] : (_unsavedReferences[next] ?? const <SceneReference>[]));
+      ..addAll(next == null
+          ? const <SceneReference>[]
+          : (_unsavedReferences[next] ?? const <SceneReference>[]));
     sceneActors.removeWhere((cast) =>
         !widget.store.avatars.any((actor) => actor.name == cast.avatarName));
-    references.removeWhere((reference) => chosen.maximumFor(reference.type) == 0);
-    negativePrompt.text = next == null ? '' : (_unsavedNegativePrompts[next] ?? '');
+    references
+        .removeWhere((reference) => chosen.maximumFor(reference.type) == 0);
+    negativePrompt.text =
+        next == null ? '' : (_unsavedNegativePrompts[next] ?? '');
     seedText.text = next == null ? '' : (_unsavedSeeds[next] ?? '');
     soundEnabled = next == null ? false : (_unsavedSounds[next] ?? false);
     selectedTemplate = null;
@@ -315,6 +866,7 @@ class _GenerationPageState extends State<GenerationPage> {
 
   @override
   void dispose() {
+    prompt.removeListener(_invalidateStaleMockQuote);
     prompt.dispose();
     negativePrompt.dispose();
     seedText.dispose();
@@ -330,7 +882,9 @@ class _GenerationPageState extends State<GenerationPage> {
         ratio = next.ratiosFor(seconds).first;
       }
       sceneActors.removeRange(
-        sceneActors.length > next.maxActors ? next.maxActors : sceneActors.length,
+        sceneActors.length > next.maxActors
+            ? next.maxActors
+            : sceneActors.length,
         sceneActors.length,
       );
       references.removeWhere((ref) => next.maximumFor(ref.type) == 0);
@@ -360,7 +914,8 @@ class _GenerationPageState extends State<GenerationPage> {
   void save() {
     if (prompt.text.trim().isEmpty || project == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Choose a project and describe your scene.')),
+        const SnackBar(
+            content: Text('Choose a project and describe your scene.')),
       );
       return;
     }
@@ -375,7 +930,9 @@ class _GenerationPageState extends State<GenerationPage> {
     if (!profile.accepts(seconds: seconds, ratio: ratio, inputs: types) ||
         sceneActors.length > profile.maxActors) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Your actors or reference files exceed this model limit.')),
+        const SnackBar(
+            content: Text(
+                'Your actors or reference files exceed this model limit.')),
       );
       return;
     }
@@ -384,14 +941,17 @@ class _GenerationPageState extends State<GenerationPage> {
       seed = int.tryParse(seedText.text.trim());
       if (seed == null || seed < 0 || !profile.supportsSeed) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Enter a valid non-negative seed for this model.')),
+          const SnackBar(
+              content: Text('Enter a valid non-negative seed for this model.')),
         );
         return;
       }
     }
-    if (negativePrompt.text.trim().isNotEmpty && !profile.supportsNegativePrompt) {
+    if (negativePrompt.text.trim().isNotEmpty &&
+        !profile.supportsNegativePrompt) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Negative prompting is unavailable for this model.')),
+        const SnackBar(
+            content: Text('Negative prompting is unavailable for this model.')),
       );
       return;
     }
@@ -399,7 +959,8 @@ class _GenerationPageState extends State<GenerationPage> {
         selectedTemplate!.prompt == prompt.text &&
         sceneActors.length < selectedTemplate!.actorSlots.length) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(
+        SnackBar(
+            content: Text(
           'Assign ${selectedTemplate!.actorSlots.length} named actors to use this template.',
         )),
       );
@@ -408,16 +969,19 @@ class _GenerationPageState extends State<GenerationPage> {
     try {
       var source = prompt.text.trim();
       if (selectedTemplate != null && selectedTemplate!.prompt == source) {
-        source = InspirationPromptBuilder.compile(selectedTemplate!, sceneActors);
+        source =
+            InspirationPromptBuilder.compile(selectedTemplate!, sceneActors);
       }
       // Detect unresolved placeholders even when the user has edited the text.
-      final roleTokens = RegExp(r'\{\{Actor[0-9]+\}\}').allMatches(source).toList();
+      final roleTokens =
+          RegExp(r'\{\{Actor[0-9]+\}\}').allMatches(source).toList();
       if (roleTokens.isNotEmpty) {
         if (sceneActors.length < roleTokens.length) {
           throw StateError('Assign the named actors before saving.');
         }
         final seen = <String>{};
-        source = source.replaceAllMapped(RegExp(r'\{\{Actor[0-9]+\}\}'), (match) {
+        source =
+            source.replaceAllMapped(RegExp(r'\{\{Actor[0-9]+\}\}'), (match) {
           final token = match.group(0)!;
           if (!seen.contains(token)) {
             seen.add(token);
@@ -427,7 +991,8 @@ class _GenerationPageState extends State<GenerationPage> {
         });
       }
       final selected = matches.first;
-      final primaryActor = widget.store.avatars.where((actor) => actor.name == avatarName);
+      final primaryActor =
+          widget.store.avatars.where((actor) => actor.name == avatarName);
       final preparedPrompt = sceneActors.isNotEmpty
           ? AvatarPromptComposer.composeActors(
               scenePrompt: source,
@@ -479,20 +1044,19 @@ class _GenerationPageState extends State<GenerationPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Scene composer',
-              style: Theme.of(context).textTheme.titleLarge),
+          Text('Scene composer', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 15),
           DropdownButtonFormField<String>(
             key: ValueKey(project),
             initialValue: project,
             decoration: const InputDecoration(labelText: 'Project'),
             isExpanded: true,
-            items: widget.store.projects.map((item) =>
-              DropdownMenuItem(
-                value: item.id,
-                child: Text(item.title, overflow: TextOverflow.ellipsis),
-              )
-            ).toList(),
+            items: widget.store.projects
+                .map((item) => DropdownMenuItem(
+                      value: item.id,
+                      child: Text(item.title, overflow: TextOverflow.ellipsis),
+                    ))
+                .toList(),
             onChanged: (v) => setState(() => _selectProject(v)),
           ),
           const SizedBox(height: 13),
@@ -545,7 +1109,8 @@ class _GenerationPageState extends State<GenerationPage> {
             Text('Template selected: ${selectedTemplate!.title}',
                 style: Theme.of(context).textTheme.bodySmall),
             if (selectedTemplate!.actorSlots.isNotEmpty)
-              Text('Add ${selectedTemplate!.actorSlots.length} named actors in order '
+              Text(
+                  'Add ${selectedTemplate!.actorSlots.length} named actors in order '
                   'to replace template role placeholders.',
                   style: Theme.of(context).textTheme.bodySmall),
           ],
@@ -593,7 +1158,8 @@ class _GenerationPageState extends State<GenerationPage> {
             subtitle: Text('${profile.label} · ${profile.priceBand}'),
             childrenPadding: const EdgeInsets.only(bottom: 15),
             children: [
-              Text('Model selection is currently illustrative. Real provider '
+              Text(
+                  'Model selection is currently illustrative. Real provider '
                   'capabilities and actual prices will come from the secure admin catalog.',
                   style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 11),
@@ -610,7 +1176,8 @@ class _GenerationPageState extends State<GenerationPage> {
                 TextField(
                   controller: seedText,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Seed (optional)'),
+                  decoration:
+                      const InputDecoration(labelText: 'Seed (optional)'),
                 ),
               if (profile.supportsSound)
                 SwitchListTile(
@@ -620,7 +1187,8 @@ class _GenerationPageState extends State<GenerationPage> {
                   onChanged: (value) => setState(() => soundEnabled = value),
                 ),
               const SizedBox(height: 9),
-              Text('Supports ${profile.maxActors} actors; '
+              Text(
+                  'Supports ${profile.maxActors} actors; '
                   '${profile.attachments.length} reference media types.',
                   style: Theme.of(context).textTheme.bodySmall),
             ],
@@ -672,7 +1240,8 @@ class _GenerationPageState extends State<GenerationPage> {
                 child: Text('Your draft history will appear here.'),
               ),
             for (final draft in widget.store.drafts
-                .where((item) => item.projectId == project).take(4))
+                .where((item) => item.projectId == project)
+                .take(4))
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.movie_creation_outlined),
@@ -689,6 +1258,8 @@ class _GenerationPageState extends State<GenerationPage> {
           ],
         ),
       ),
+      const SizedBox(height: 15),
+      _mockGenerationPanel(),
     ]);
     return PageFrame(
       child: Column(
@@ -700,7 +1271,8 @@ class _GenerationPageState extends State<GenerationPage> {
             subtitle: 'Direct your shots with powerful cinematic controls.',
           ),
           const DemoNotice(
-            'UI prototype: no AI provider or rendering engine is connected, and no credits are charged.',
+            'AI video rendering is not connected. The optional server workflow below '
+            'is a mock dry run that creates job metadata only and uses simulated credits.',
           ),
           const SizedBox(height: 20),
           LayoutBuilder(builder: (context, constraints) {

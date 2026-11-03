@@ -80,6 +80,93 @@ class CloudProjectSnapshot extends CloudProjectSummary {
   final Map<String, dynamic> document;
 }
 
+class MockGenerationAvailability {
+  const MockGenerationAvailability({required this.enabled, this.credits});
+  final bool enabled;
+  final int? credits;
+}
+
+class MockGenerationQuote {
+  const MockGenerationQuote({
+    required this.token,
+    required this.credits,
+    required this.expiresAt,
+  });
+  final String token;
+  final int credits;
+  final DateTime expiresAt;
+}
+
+class MockGenerationJob {
+  const MockGenerationJob({
+    required this.id,
+    required this.status,
+    required this.attempts,
+    required this.maxAttempts,
+    required this.reservedCredits,
+    required this.chargedCredits,
+    required this.createdAt,
+    this.errorCode,
+    this.result,
+  });
+  final String id;
+  final String status;
+  final int attempts;
+  final int maxAttempts;
+  final int reservedCredits;
+  final int chargedCredits;
+  final DateTime? createdAt;
+  final String? errorCode;
+  final Map<String, dynamic>? result;
+
+  static MockGenerationJob fromJson(Object? value) {
+    if (value is! Map<String, dynamic>) {
+      throw const AccountApiException(
+          'The job service returned an invalid job.');
+    }
+    final id = value['id'];
+    final status = value['status'];
+    int? integer(String key) {
+      final raw = value[key];
+      return raw is int ? raw : int.tryParse('$raw');
+    }
+
+    final attempts = integer('attempts');
+    final maxAttempts = integer('maxAttempts');
+    final reserved = integer('reservedCredits');
+    final charged = integer('chargedCredits');
+    const states = {'queued', 'processing', 'succeeded', 'failed', 'cancelled'};
+    if (id is! String ||
+        !RegExp(r'^[a-f0-9-]{36}$', caseSensitive: false).hasMatch(id) ||
+        status is! String ||
+        !states.contains(status) ||
+        attempts == null ||
+        maxAttempts == null ||
+        reserved == null ||
+        charged == null ||
+        attempts < 0 ||
+        maxAttempts < 1 ||
+        reserved < 0 ||
+        charged < 0 ||
+        (value['result'] != null && value['result'] is! Map<String, dynamic>) ||
+        (value['errorCode'] != null && value['errorCode'] is! String)) {
+      throw const AccountApiException(
+          'The job service returned an invalid job.');
+    }
+    return MockGenerationJob(
+      id: id,
+      status: status,
+      attempts: attempts,
+      maxAttempts: maxAttempts,
+      reservedCredits: reserved,
+      chargedCredits: charged,
+      createdAt: DateTime.tryParse('${value['createdAt'] ?? ''}'),
+      errorCode: value['errorCode'] as String?,
+      result: value['result'] as Map<String, dynamic>?,
+    );
+  }
+}
+
 /// Shared authenticated HOTICE account API client. No API key is stored here;
 /// the optional base URL is a public deployment address supplied at build time.
 class AccountApi {
@@ -294,6 +381,112 @@ class AccountApi {
     await _authorizedRequest('DELETE', '/v1/projects/${_projectId(id)}');
   }
 
+  Future<MockGenerationAvailability> getMockGenerationAvailability() async {
+    final data = await _authorizedRequest('GET', '/v1/me');
+    final mock = data['mockGeneration'];
+    if (mock is! Map<String, dynamic> || mock['enabled'] is! bool) {
+      throw const AccountApiException(
+        'The service did not return mock-generation availability.',
+      );
+    }
+    final rawCredits = mock['credits'];
+    final credits = rawCredits == null
+        ? null
+        : rawCredits is int
+            ? rawCredits
+            : int.tryParse('$rawCredits');
+    if (rawCredits != null && (credits == null || credits < 0)) {
+      throw const AccountApiException(
+          'The service returned invalid credit data.');
+    }
+    return MockGenerationAvailability(
+      enabled: mock['enabled'] as bool,
+      credits: credits,
+    );
+  }
+
+  Future<MockGenerationQuote> quoteMockGeneration(String prompt) async {
+    final text = prompt.trim();
+    if (text.isEmpty || text.length > 2000) {
+      throw const AccountApiException('Scene text must be 1–2000 characters.');
+    }
+    final data = await _authorizedRequest(
+      'POST',
+      '/v1/jobs/quote',
+      body: {
+        'request': {'modelId': 'hotice.mock.video.v1', 'prompt': text},
+      },
+    );
+    final token = data['quoteToken'];
+    final credits = data['credits'];
+    final modelId = data['modelId'];
+    final expiresAt = DateTime.tryParse('${data['expiresAt'] ?? ''}');
+    if (token is! String ||
+        token.isEmpty ||
+        token.length > 4096 ||
+        credits is! int ||
+        credits < 0 ||
+        modelId != 'hotice.mock.video.v1' ||
+        expiresAt == null ||
+        !expiresAt.isAfter(DateTime.now())) {
+      throw const AccountApiException(
+          'The job service returned an invalid quote.');
+    }
+    return MockGenerationQuote(
+      token: token,
+      credits: credits,
+      expiresAt: expiresAt,
+    );
+  }
+
+  /// Reusing the same local intent key makes an uncertain network retry
+  /// idempotent, including after app restart. The server checks replays before
+  /// consuming a quote, so an existing job is returned without a second reserve.
+  Future<MockGenerationJob> submitMockGeneration({
+    required String quoteToken,
+    required String prompt,
+    required String idempotencyKey,
+  }) async {
+    if (!RegExp(r'^[A-Za-z0-9._~:-]{16,128}$').hasMatch(idempotencyKey)) {
+      throw const AccountApiException('Invalid generation request identifier.');
+    }
+    if (quoteToken.isEmpty || quoteToken.length > 4096) {
+      throw const AccountApiException('Request a fresh mock-generation quote.');
+    }
+    final text = prompt.trim();
+    if (text.isEmpty || text.length > 2000) {
+      throw const AccountApiException('Scene text must be 1–2000 characters.');
+    }
+    final data = await _authorizedRequest(
+      'POST',
+      '/v1/jobs',
+      headers: {'Idempotency-Key': idempotencyKey},
+      body: {
+        'quoteToken': quoteToken,
+        'request': {'modelId': 'hotice.mock.video.v1', 'prompt': text},
+      },
+    );
+    return MockGenerationJob.fromJson(data['job']);
+  }
+
+  Future<List<MockGenerationJob>> listMockGenerationJobs() async {
+    final data = await _authorizedRequest('GET', '/v1/jobs');
+    final jobs = data['jobs'];
+    if (jobs is! List || jobs.length > 50) {
+      throw const AccountApiException(
+          'The job service returned an invalid job list.');
+    }
+    return jobs.map(MockGenerationJob.fromJson).toList(growable: false);
+  }
+
+  Future<MockGenerationJob> cancelMockGenerationJob(String id) async {
+    final data = await _authorizedRequest(
+      'POST',
+      '/v1/jobs/${_projectId(id)}/cancel',
+    );
+    return MockGenerationJob.fromJson(data['job']);
+  }
+
   String _projectId(String id) {
     if (!RegExp(
       r'^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$',
@@ -308,6 +501,7 @@ class AccountApi {
     String method,
     String path, {
     Map<String, dynamic>? body,
+    Map<String, String>? headers,
   }) async {
     String? token;
     try {
@@ -323,7 +517,13 @@ class AccountApi {
         statusCode: 401,
       );
     }
-    return _request(method, path, token: token, body: body);
+    return _request(
+      method,
+      path,
+      token: token,
+      body: body,
+      headers: headers,
+    );
   }
 
   Future<Map<String, dynamic>> _request(
@@ -331,6 +531,7 @@ class AccountApi {
     String path, {
     String? token,
     Map<String, dynamic>? body,
+    Map<String, String>? headers,
   }) async {
     final base = _validBaseUri();
     if (base == null) {
@@ -339,13 +540,16 @@ class AccountApi {
       );
     }
     final uri = base.resolve(path);
-    final headers = <String, String>{'Accept': 'application/json'};
-    if (body != null) headers['Content-Type'] = 'application/json';
-    if (token != null) headers['Authorization'] = 'Bearer $token';
+    final requestHeaders = <String, String>{
+      'Accept': 'application/json',
+      ...?headers,
+    };
+    if (body != null) requestHeaders['Content-Type'] = 'application/json';
+    if (token != null) requestHeaders['Authorization'] = 'Bearer $token';
     late http.Response response;
     try {
       final payload = body == null ? null : jsonEncode(body);
-      final request = http.Request(method, uri)..headers.addAll(headers);
+      final request = http.Request(method, uri)..headers.addAll(requestHeaders);
       // Do not forward a bearer token across an unexpected API redirect.
       request.followRedirects = false;
       if (payload != null) request.body = payload;
