@@ -28,7 +28,7 @@ Use compare-and-swap updates with attempt UUID and lease token. Persist the retu
 
 ## Required proof before enabling a live adapter
 
-- Each registered model must provide a server-owned `ProviderModelCapabilities` record. The registry validates attachment role, MIME type, count and aggregate byte size before calling an adapter. `ProviderRequest` accepts only metadata references (`mediaId`, role, inspected MIME, byte size and SHA-256); inline bytes, base64, local paths and unknown fields are rejected. The application must still resolve each media ID to the authenticated user's clean, private bytes before dispatch. A client declaration alone is never trusted as MIME or scan evidence.
+- Each registered model must provide a server-owned `ProviderModelCapabilities` record. The registry validates prompt length, exact duration/aspect pairs, attachment role, MIME type, count and aggregate byte size before calling an adapter. `ProviderRequest` accepts only metadata references (`mediaId`, role, inspected MIME, byte size and SHA-256); inline bytes, base64, local paths and unknown fields are rejected. The application must still resolve each media ID to the authenticated user's clean, private bytes before dispatch. A client declaration alone is never trusted as MIME or scan evidence.
 - Verify the provider's current official API contract for idempotency, request lookup, timeout semantics, polling, cancellation, output URL expiry and account/region/model access. Treat undocumented behavior as unsupported.
 - Build a durable provider-attempt table and migration that is safe on the supported cPanel MySQL version, plus rollback/backup instructions.
 - Separate dispatch, poll and reconciliation workers. Polling a known remote ID must never invoke submit.

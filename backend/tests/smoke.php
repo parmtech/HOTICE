@@ -38,18 +38,24 @@ try { new Hotice\ProviderRequest(Hotice\MockProviderAdapter::MODEL_ID, 'prompt',
 try { $providerRegistry->validateRequest(new Hotice\ProviderRequest(Hotice\MockProviderAdapter::MODEL_ID, 'prompt', [$providerMedia])); check(false, 'mock model rejects unsupported attachment before dispatch'); } catch (ApiError $e) { check($e->status === 422, 'mock model rejects unsupported attachment before dispatch'); }
 $imageAdapter = new class implements Hotice\ProviderAdapter {
     public function id(): string { return 'fixture'; }
-    public function modelCapabilities(): array { return [new Hotice\ProviderModelCapabilities('fixture.video.v1', ['reference_image' => ['image/jpeg', 'image/png']], 2, 2 * 1024 * 1024)]; }
+    public function modelCapabilities(): array { return [new Hotice\ProviderModelCapabilities('fixture.video.v1', ['reference_image' => ['image/jpeg', 'image/png']], 2, 2 * 1024 * 1024, [
+        ['durationSeconds' => 4, 'aspectRatio' => '16:9'],
+        ['durationSeconds' => 8, 'aspectRatio' => '9:16'],
+    ], 120)]; }
     public function submit(Hotice\ProviderRequest $request, string $idempotencyKey): Hotice\ProviderOperation { return new Hotice\ProviderOperation(Support::uuid(), 'queued'); }
     public function poll(string $operationId): Hotice\ProviderOperation { return new Hotice\ProviderOperation($operationId, 'processing'); }
     public function cancel(string $operationId): Hotice\ProviderOperation { return new Hotice\ProviderOperation($operationId, 'cancelled'); }
 };
 $capabilityRegistry = new Hotice\ProviderRegistry([$imageAdapter]);
-check($capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [$providerMedia])) === $imageAdapter, 'declared reference image capability accepts metadata-only attachment');
-try { $capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [array_merge($providerMedia, ['mime' => 'video/mp4'])])); check(false, 'model rejects unsupported attachment MIME before dispatch'); } catch (ApiError $e) { check($e->status === 422, 'model rejects unsupported attachment MIME before dispatch'); }
+check($capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [$providerMedia], [], 4, '16:9')) === $imageAdapter, 'declared reference image and duration/aspect capabilities accept the request');
+try { $capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [$providerMedia], [], 4, '9:16')); check(false, 'model rejects unsupported duration/aspect pair'); } catch (ApiError $e) { check($e->status === 422, 'model rejects unsupported duration/aspect pair'); }
+try { $capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', str_repeat('p', 121), [], [], 4, '16:9')); check(false, 'model enforces per-model prompt limit'); } catch (ApiError $e) { check($e->status === 422, 'model enforces per-model prompt limit'); }
+try { new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [], [], 4); check(false, 'generation settings require a complete duration/aspect pair'); } catch (InvalidArgumentException) { check(true, 'generation settings require a complete duration/aspect pair'); }
+try { $capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [array_merge($providerMedia, ['mime' => 'video/mp4'])], [], 4, '16:9')); check(false, 'model rejects unsupported attachment MIME before dispatch'); } catch (ApiError $e) { check($e->status === 422, 'model rejects unsupported attachment MIME before dispatch'); }
 try { $capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [
     $providerMedia,
     array_merge($providerMedia, ['mediaId' => Support::uuid(), 'byteSize' => 2 * 1024 * 1024]),
-])); check(false, 'model enforces aggregate attachment byte limit'); } catch (ApiError $e) { check($e->status === 422, 'model enforces aggregate attachment byte limit'); }
+], [], 4, '16:9')); check(false, 'model enforces aggregate attachment byte limit'); } catch (ApiError $e) { check($e->status === 422, 'model enforces aggregate attachment byte limit'); }
 try { new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [$providerMedia, $providerMedia]); check(false, 'duplicate media IDs rejected before dispatch'); } catch (InvalidArgumentException) { check(true, 'duplicate media IDs rejected before dispatch'); }
 try { new Hotice\ProviderModelCapabilities('fixture.video.v1', ['reference_image' => ['image/jpeg']], 2, 0); check(false, 'attachment capabilities require a positive byte limit'); } catch (InvalidArgumentException) { check(true, 'attachment capabilities require a positive byte limit'); }
 $providerOperation = $mockProvider->submit($providerRequest, str_repeat('a', 64));

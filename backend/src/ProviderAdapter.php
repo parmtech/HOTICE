@@ -6,18 +6,35 @@ namespace Hotice;
 /** A model's server-verified input contract. Empty inputs mean no attachments. */
 final readonly class ProviderModelCapabilities
 {
-    /** @param array<string,list<string>> $attachmentMimes MIME types keyed by normalized role */
+    /** @param array<string,list<string>> $attachmentMimes MIME types keyed by normalized role
+     *  @param list<array{durationSeconds:int,aspectRatio:string}> $durationAspectPairs */
     public function __construct(
         public string $modelId,
         public array $attachmentMimes = [],
         public int $maxAttachments = 0,
         public int $maxTotalAttachmentBytes = 0,
+        public array $durationAspectPairs = [],
+        public int $maxPromptCharacters = 2000,
     ) {
         if (!preg_match('/^[a-z0-9][a-z0-9._:-]{2,127}$/i', $modelId)) {
             throw new \InvalidArgumentException('Invalid capability model identifier.');
         }
         if ($maxAttachments < 0 || $maxAttachments > 20 || $maxTotalAttachmentBytes < 0) {
             throw new \InvalidArgumentException('Invalid model attachment limits.');
+        }
+        if ($maxPromptCharacters < 1 || $maxPromptCharacters > 30000) {
+            throw new \InvalidArgumentException('Invalid model prompt limit.');
+        }
+        $seenPairs = [];
+        foreach ($durationAspectPairs as $pair) {
+            if (!is_array($pair) || array_diff(array_keys($pair), ['durationSeconds', 'aspectRatio']) !== [] || count($pair) !== 2 ||
+                !is_int($pair['durationSeconds'] ?? null) || $pair['durationSeconds'] < 1 || $pair['durationSeconds'] > 3600 ||
+                !is_string($pair['aspectRatio'] ?? null) || !preg_match('/^[1-9][0-9]{0,2}:[1-9][0-9]{0,2}$/D', $pair['aspectRatio'])) {
+                throw new \InvalidArgumentException('Invalid duration/aspect capability.');
+            }
+            $pairKey = $pair['durationSeconds'] . ':' . $pair['aspectRatio'];
+            if (isset($seenPairs[$pairKey])) throw new \InvalidArgumentException('Duplicate duration/aspect capability.');
+            $seenPairs[$pairKey] = true;
         }
         foreach ($attachmentMimes as $role => $mimes) {
             if (!in_array($role, ProviderRequest::ATTACHMENT_ROLES, true) || !is_array($mimes) || $mimes === []) {
@@ -38,6 +55,22 @@ final readonly class ProviderModelCapabilities
     public function accepts(ProviderRequest $request): bool
     {
         if ($request->modelId !== $this->modelId || count($request->attachments) > $this->maxAttachments) return false;
+        $promptCharacters = preg_match_all('/./us', $request->prompt);
+        if ($promptCharacters === false || $promptCharacters > $this->maxPromptCharacters) return false;
+        if ($this->durationAspectPairs === []) {
+            if ($request->durationSeconds !== null || $request->aspectRatio !== null) return false;
+        } elseif ($request->durationSeconds === null || $request->aspectRatio === null) {
+            return false;
+        } else {
+            $pairFound = false;
+            foreach ($this->durationAspectPairs as $pair) {
+                if ($pair['durationSeconds'] === $request->durationSeconds && $pair['aspectRatio'] === $request->aspectRatio) {
+                    $pairFound = true;
+                    break;
+                }
+            }
+            if (!$pairFound) return false;
+        }
         $totalBytes = 0;
         foreach ($request->attachments as $attachment) {
             $allowedMimes = $this->attachmentMimes[$attachment['role']] ?? [];
@@ -59,11 +92,19 @@ final readonly class ProviderRequest
         public string $prompt,
         public array $attachments = [],
         public array $options = [],
+        public ?int $durationSeconds = null,
+        public ?string $aspectRatio = null,
     ) {
         if (!preg_match('/^[a-z0-9][a-z0-9._:-]{2,127}$/i', $modelId)) {
             throw new \InvalidArgumentException('Invalid model identifier.');
         }
         if (strlen($prompt) > 30000) throw new \InvalidArgumentException('Prompt is too large.');
+        if (preg_match_all('/./us', $prompt) === false) throw new \InvalidArgumentException('Prompt must be valid UTF-8 text.');
+        if (($durationSeconds === null) !== ($aspectRatio === null) ||
+            ($durationSeconds !== null && ($durationSeconds < 1 || $durationSeconds > 3600)) ||
+            ($aspectRatio !== null && !preg_match('/^[1-9][0-9]{0,2}:[1-9][0-9]{0,2}$/D', $aspectRatio))) {
+            throw new \InvalidArgumentException('Invalid generation duration/aspect pair.');
+        }
         if (count($attachments) > 20) throw new \InvalidArgumentException('Too many attachments.');
         $seen = [];
         foreach ($attachments as $attachment) {
