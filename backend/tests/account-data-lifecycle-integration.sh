@@ -97,3 +97,52 @@ php backend/bin/purge-private-media.php 10 | jq -e '.purged == 1 and .retryableF
 echo '[account-lifecycle-test] purge retry succeeded'
 test "$(php -r 'require_once "backend/src/App.php"; $c=require "backend/config.php"; $db=(new Hotice\App($c))->database(); echo $db->query("SELECT COUNT(*) FROM private_media_deletion_queue")->fetchColumn();')" = '0'
 echo '[account-lifecycle-test] export isolation, deletion safeguards, relational cleanup, revoked tokens, and retryable private-media purge passed'
+
+# Regression: the account DELETE transaction must not be reported as a failure
+# if the *post-commit* deletion-queue bookkeeping temporarily fails. Simulate
+# an unexpected database error only while removing a queue entry. The queue
+# must survive and remain retryable after the trigger is removed.
+FAULT_EMAIL='account-postcommit-fault@example.test'
+FAULT_PASS='AccountPostCommitTest123!'
+printf '%s\n' "$FAULT_PASS" | php backend/bin/create-user.php "$FAULT_EMAIL" >/dev/null
+php backend/bin/grant-trial.php "$FAULT_EMAIL" 100 7 >/dev/null
+fault_token=$(curl -fsS -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$FAULT_EMAIL\",\"password\":\"$FAULT_PASS\"}" \
+  "$BASE/v1/auth/login" | jq -er '.accessToken')
+FAULT_AUTH="Authorization: Bearer $fault_token"
+fault_project=$(php -r 'require "backend/src/Support.php"; echo Hotice\Support::uuid();')
+fault_file=$(php -r 'require "backend/src/Support.php"; echo Hotice\Support::uuid();')
+curl -fsS -X PUT -H "$FAULT_AUTH" -H 'Content-Type: application/json' \
+  -d '{"title":"Post-commit retry case","expectedRevision":0,"document":{"test":true}}' \
+  "$BASE/v1/projects/$fault_project" >/dev/null
+curl -fsS -X PUT -H "$FAULT_AUTH" -H 'Content-Type: image/png' \
+  --data-binary @/tmp/hotice-account-fixture.png \
+  "$BASE/v1/projects/$fault_project/files/$fault_file" >/dev/null
+fault_storage_name=$(php -r '
+require_once "backend/src/App.php"; $db=(new Hotice\App(require "backend/config.php"))->database();
+$q=$db->prepare("SELECT storage_name FROM cloud_files WHERE id=?");
+$q->execute([$argv[1]]); echo $q->fetchColumn();
+' "$fault_file")
+test -n "$fault_storage_name"
+
+# The database grants in this isolated CI fixture allow a temporary trigger.
+# It raises only during the queue entry cleanup AFTER the user was deleted.
+php -r '
+require_once "backend/src/App.php"; $db=(new Hotice\App(require "backend/config.php"))->database();
+$db->exec("CREATE TRIGGER hotice_test_queue_cleanup_fault BEFORE DELETE ON private_media_deletion_queue FOR EACH ROW SIGNAL SQLSTATE \'45000\' SET MESSAGE_TEXT = \'synthetic post-commit cleanup fault\'");
+'
+fault_delete=$(curl -fsS -X DELETE -H "$FAULT_AUTH" -H 'Content-Type: application/json' \
+  -d "{\"confirmation\":\"DELETE\",\"password\":\"$FAULT_PASS\"}" "$BASE/v1/me")
+echo "$fault_delete" | jq -e '.deleted == true and .accountDataRemoved == true and .queuedMediaFiles == 1' >/dev/null
+test "$(curl -sS -o /dev/null -w '%{http_code}' -H "$FAULT_AUTH" "$BASE/v1/me")" = '401'
+test "$(php -r '
+require_once "backend/src/App.php"; $db=(new Hotice\App(require "backend/config.php"))->database();
+$q=$db->prepare("SELECT COUNT(*) FROM private_media_deletion_queue WHERE storage_name=?");
+$q->execute([$argv[1]]); echo $q->fetchColumn();
+' "$fault_storage_name")" = '1'
+php -r '
+require_once "backend/src/App.php"; $db=(new Hotice\App(require "backend/config.php"))->database();
+$db->exec("DROP TRIGGER hotice_test_queue_cleanup_fault");
+'
+php backend/bin/purge-private-media.php 10 | jq -e '.purged == 1 and .retryableFailures == 0' >/dev/null
+echo '[account-lifecycle-test] committed deletion succeeds during queue bookkeeping outage; durable cleanup retry passed'
