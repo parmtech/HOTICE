@@ -284,6 +284,8 @@ class AccountsPage extends StatefulWidget {
 class _AccountsPageState extends State<AccountsPage> {
   final email = TextEditingController();
   String? selectedProjectId;
+  String? localCopySourceEmail;
+  String? localCopyProjectId;
   List<CloudProjectSummary> cloudProjects = const [];
   bool cloudBusy = false;
 
@@ -523,6 +525,139 @@ class _AccountsPageState extends State<AccountsPage> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Widget _localProjectCopyPanel() {
+    final candidates = widget.store.localProjectTransferCandidates;
+    if (candidates.isEmpty) {
+      return const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Bring a local project into this account'),
+          SizedBox(height: 6),
+          Text(
+            'There are no eligible user-created projects in another local profile. Sample projects stay examples.',
+          ),
+        ],
+      );
+    }
+    final profiles = candidates
+        .map((candidate) => candidate.sourceProfileEmail)
+        .toSet()
+        .toList(growable: false);
+    final profile = profiles.contains(localCopySourceEmail)
+        ? localCopySourceEmail!
+        : profiles.first;
+    final projects = candidates
+        .where((candidate) => candidate.sourceProfileEmail == profile)
+        .toList(growable: false);
+    final projectId = projects.any(
+      (candidate) => candidate.project.id == localCopyProjectId,
+    )
+        ? localCopyProjectId!
+        : projects.first.project.id;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Bring a local project into this account',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Copy one user-created project from another saved local profile. The original stays unchanged. This creates a local copy only; cloud saving is a separate choice below.',
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          key: const ValueKey('local-copy-source-profile'),
+          initialValue: profile,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Local profile'),
+          items: [
+            for (final item in profiles)
+              DropdownMenuItem(value: item, child: Text(item)),
+          ],
+          onChanged: (value) => setState(() {
+            localCopySourceEmail = value;
+            localCopyProjectId = null;
+          }),
+        ),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(
+          key: ValueKey('local-copy-project-$profile'),
+          initialValue: projectId,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Local project'),
+          items: [
+            for (final candidate in projects)
+              DropdownMenuItem(
+                value: candidate.project.id,
+                child: Text(
+                  candidate.project.title,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+          onChanged: (value) => setState(() => localCopyProjectId = value),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () => _confirmAndCopyLocalProject(profile, projectId),
+            icon: const Icon(Icons.copy_all_outlined),
+            label: const Text('Review local copy'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _confirmAndCopyLocalProject(
+    String profileEmail,
+    String projectId,
+  ) async {
+    final candidate = widget.store.localProjectTransferCandidates.where(
+      (item) =>
+          item.sourceProfileEmail == profileEmail &&
+          item.project.id == projectId,
+    );
+    if (candidate.isEmpty) return;
+    final project = candidate.first.project;
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('Copy “${project.title}” to this device account?'),
+            content: const Text(
+              'This creates a separate local copy with a new project ID. It includes scene prompts and settings, storyboard text, Actor names and notes, and reference-file metadata. Media bytes and pending generation attempts are not copied. The original remains unchanged. Nothing is uploaded; use the separate cloud control below only if you want a cloud copy.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(context, true),
+                icon: const Icon(Icons.copy_all_outlined),
+                label: const Text('Copy on this device'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) return;
+    try {
+      final result = widget.store.copyLocalProjectFromProfile(
+        profileEmail,
+        projectId,
+      );
+      setState(() => selectedProjectId = result.project.id);
+      _showMessage(
+        'Local copy created. The original stays in “$profileEmail”; nothing was uploaded.',
+      );
+    } on StateError catch (error) {
+      _showMessage(error.message.toString());
+    }
+  }
+
   @override
   Widget build(BuildContext context) => PageFrame(
         child: widget.authenticatedEmail != null
@@ -548,6 +683,8 @@ class _AccountsPageState extends State<AccountsPage> {
                         const Text(
                           'Projects and creative drafts remain local on this device. Cloud sync and paid generation require separate explicit controls.',
                         ),
+                        const SizedBox(height: 18),
+                        _localProjectCopyPanel(),
                         const SizedBox(height: 18),
                         _cloudSyncPanel(),
                         const SizedBox(height: 14),

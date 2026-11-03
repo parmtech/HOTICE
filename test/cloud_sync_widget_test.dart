@@ -8,6 +8,69 @@ import 'package:hotice/src/state.dart';
 import 'package:http/http.dart' as http;
 
 void main() {
+  testWidgets(
+      'local profile copy is confirmed, local-only, and preserves source',
+      (tester) async {
+    final store = HotIceStore()..signInDemo('legacy@example.com');
+    addTearDown(store.dispose);
+    final sourceId = store.addProject('Legacy local cut');
+    store.queueDraft(GenerationDraft(
+      projectId: sourceId,
+      project: 'Legacy local cut',
+      prompt: 'A character enters the room',
+      model: 'Preview model',
+      aspectRatio: '16:9',
+      durationSeconds: 8,
+      createdAt: DateTime.utc(2026, 10, 30),
+    ));
+    store.signInAuthenticated('stable-user-001', 'owner@example.com');
+    var requestCount = 0;
+    final api = AccountApi(
+      baseUrl: 'https://api.example.com',
+      tokenStore: _Tokens(),
+      client: _Client((request) async {
+        requestCount++;
+        throw StateError('Local copy unexpectedly called the API.');
+      }),
+    );
+    addTearDown(api.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: AccountsPage(
+          store: store,
+          accountApi: api,
+          authenticatedEmail: 'owner@example.com',
+        ),
+      ),
+    ));
+    await tester.ensureVisible(find.text('Review local copy'));
+    await tester.tap(find.text('Review local copy'));
+    await tester.pumpAndSettle();
+    expect(find.text('Copy “Legacy local cut” to this device account?'),
+        findsOneWidget);
+    expect(requestCount, 0);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(store.projects, isEmpty);
+    expect(requestCount, 0);
+
+    await tester.ensureVisible(find.text('Review local copy'));
+    await tester.tap(find.text('Review local copy'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Copy on this device'));
+    await tester.pumpAndSettle();
+    expect(store.projects, hasLength(1));
+    expect(store.projects.single.id, isNot(sourceId));
+    expect(store.drafts.single.projectId, store.projects.single.id);
+    expect(store.cloudRevision(store.projects.single.id), 0);
+    expect(requestCount, 0);
+    expect(find.textContaining('nothing was uploaded'), findsOneWidget);
+    store.switchAccount('legacy@example.com');
+    expect(store.projects.single.id, sourceId);
+    expect(store.drafts.single.projectId, sourceId);
+    expect(requestCount, 0);
+  });
+
   testWidgets('cloud project upload waits for project-specific consent',
       (tester) async {
     final store = HotIceStore()..signInDemo('creator@example.com');

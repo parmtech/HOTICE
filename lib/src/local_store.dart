@@ -6,6 +6,8 @@ import 'package:cryptography/cryptography.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'local_archive_contract.dart';
+
 /// Explicit failure, rather than silently overwriting an archive that cannot
 /// be decrypted (e.g., Android restores a data file without its Keystore key).
 class HotIceLocalArchiveException implements Exception {
@@ -31,7 +33,7 @@ class HotIceLocalArchive {
 
   static const _fileName = 'hotice-projects-v1.aes';
   static const _keyName = 'hotice-projects-encryption-key-v1';
-  static const _maxJsonBytes = 2 * 1024 * 1024;
+  static const _maxJsonBytes = hotIceLocalArchiveMaxJsonBytes;
 
   File get _primary => File('${directory.path}/$_fileName');
   File get _backup => File('${directory.path}/$_fileName.bak');
@@ -74,7 +76,8 @@ class HotIceLocalArchive {
       if (!await candidate.exists()) continue;
       try {
         if (await candidate.length() > _maxJsonBytes * 2) {
-          throw const FormatException('Encrypted archive exceeds local data limit.');
+          throw const FormatException(
+              'Encrypted archive exceeds local data limit.');
         }
         final blob = await candidate.readAsString();
         final sealed = jsonDecode(blob);
