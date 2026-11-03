@@ -38,8 +38,62 @@ test('passes healthy API and denies every protected path probe', async () => {
   });
   assert.equal(result.ok, true, result.failures.join('\n'));
   assert.equal(requests.length, result.checkedPaths + 2);
-  assert.ok(requests.every(({ options }) => options.method === 'GET' && options.redirect === 'manual'));
-  assert.ok(requests.some(({ url }) => url.includes('/%2e%2e%2fconfig.php')));
+  assert.ok(requests.every(({ options }) =>
+    options.method === 'GET' && options.redirect === 'manual' && options.signal instanceof AbortSignal));
+  for (const protectedAlias of [
+    '/%2e%2e%2fconfig.php',
+    '/%2e%2e%2fbackend%2fconfig.php',
+    '/%252e%252e%252fconfig.php',
+    '/backend%2fconfig.php',
+    '/.env',
+    '/.git/config',
+    '/backend/.user.ini',
+    '/private-media/.htaccess',
+  ]) assert.ok(requests.some(({ url }) => url.endsWith(protectedAlias)), `missing probe: ${protectedAlias}`);
+});
+
+test('aborts a request that exceeds its deadline and validates timeout bounds', async () => {
+  const result = await verifyDeployment('https://api.example.com', async (_url, options) =>
+    new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+    }), { timeoutMs: 5 });
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.includes('/health: request failed'));
+  await assert.rejects(verifyDeployment('https://api.example.com', fetch, { timeoutMs: 0 }), /between 1 and 30000/);
+  await assert.rejects(verifyDeployment('https://api.example.com', fetch, { timeoutMs: 30001 }), /between 1 and 30000/);
+});
+
+test('keeps the deadline active while reading a health response body', async () => {
+  const result = await verifyDeployment('https://api.example.com', async (url, options) => {
+    if (options.headers.Origin) return mockResponse(403, {}, { 'content-type': 'application/json' });
+    if (url.endsWith('/health')) {
+      return {
+        status: 200,
+        headers: new Headers(secureHeaders),
+        body: {
+          getReader: () => ({
+            read: () => new Promise((_resolve, reject) =>
+              options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })),
+            releaseLock: () => {},
+            cancel: async () => {},
+          }),
+          cancel: async () => {},
+        },
+      };
+    }
+    return mockResponse(404, {}, { 'content-type': 'application/json' });
+  }, { timeoutMs: 5 });
+  assert.ok(result.failures.includes('/health: response body request timed out'));
+});
+
+test('rejects an oversized health response body without exposing its contents', async () => {
+  const largeBody = JSON.stringify({ service: 'HOTICE API', status: 'ok' }).padEnd(8193, ' ');
+  const result = await verifyDeployment('https://api.example.com', async (url, options) =>
+    options.headers.Origin ? mockResponse(403, {}, { 'content-type': 'application/json' }) : url.endsWith('/health')
+      ? new Response(largeBody, { status: 200, headers: secureHeaders })
+      : mockResponse(404, {}, { 'content-type': 'application/json' }));
+  assert.ok(result.failures.includes('/health: response body exceeds the 8192-byte limit'));
+  assert.ok(result.failures.every((failure) => !failure.includes(largeBody)));
 });
 
 test('fails closed when a secret-bearing path is publicly served', async () => {
