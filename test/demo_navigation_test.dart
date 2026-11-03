@@ -254,10 +254,17 @@ void main() {
 
     // The last navigation item must remain reachable by scrolling the
     // sidebar, instead of overflowing below the bottom edge.
-    final accountNav = find.text('Accounts').first;
-    await tester.ensureVisible(accountNav);
+    // A scrollable sidebar lazily lays out offscreen destinations; drive
+    // its Scrollable until the Accounts tile has entered the viewport.
+    final sidebarScroll = find.descendant(
+      of: find.byType(ListView).first,
+      matching: find.byType(Scrollable),
+    ).first;
+    await tester.scrollUntilVisible(
+      find.text('Accounts'), 180, scrollable: sidebarScroll,
+    );
     await tester.pumpAndSettle();
-    await tester.tap(accountNav);
+    await tester.tap(find.text('Accounts').first);
     await tester.pumpAndSettle();
     expect(find.text('Your demo profiles'), findsOneWidget);
     expect(tester.takeException(), isNull);
