@@ -77,6 +77,18 @@ class ProjectsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Count once per frame rather than repeatedly scanning every draft for
+    // every visible project card. This keeps the grid responsive as it grows.
+    final sceneCounts = <String, int>{};
+    for (final draft in store.drafts) {
+      sceneCounts.update(draft.projectId, (count) => count + 1,
+          ifAbsent: () => 1);
+    }
+    final storyboardCounts = <String, int>{};
+    for (final plan in store.musicPlans) {
+      storyboardCounts.update(plan.projectId, (count) => count + 1,
+          ifAbsent: () => 1);
+    }
     return PageFrame(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -93,9 +105,10 @@ class ProjectsPage extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           const DemoNotice(
-            'Demo only: projects, scenes and storyboards are stored in memory '
-            'and will be lost when the app restarts. Device storage and '
-            'paid cloud backup are not connected yet.',
+            'On the installed HOTICE app, project text and storyboards are '
+            'saved in encrypted device storage. Media files are not included. '
+            'There is no automatic cloud backup; uninstalling the app or '
+            'losing the device key can make local work unrecoverable.',
           ),
           const SizedBox(height: 22),
           if (store.projects.isEmpty)
@@ -189,10 +202,8 @@ class ProjectsPage extends StatelessWidget {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              '${store.drafts.where((item) => item.projectId == project.id).length} '
-                              'scene drafts · '
-                              '${store.musicPlans.where((item) => item.projectId == project.id).length} '
-                              'storyboards',
+                              '${sceneCounts[project.id] ?? 0} scene drafts · '
+                              '${storyboardCounts[project.id] ?? 0} storyboards',
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context).textTheme.bodySmall,
