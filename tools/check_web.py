@@ -48,6 +48,12 @@ def main():
     assert 'name="hotice-api-origin"' in html, "Configure the shared HTTPS API origin at deployment"
     for element_id in ("accountLogin", "accountEmail", "accountPassword", "accountStatus", "accountSignOut"):
         assert 'id="' + element_id + '"' in html, "Missing shared-account workflow control: " + element_id
+    for password_id in ("accountPassword", "registerPassword", "registerPasswordConfirm",
+                        "resetNewPassword", "resetConfirmPassword"):
+        assert 'data-password-toggle="' + password_id + '"' in html, \
+            "Missing accessible password visibility control: " + password_id
+        assert 'aria-controls="' + password_id + '"' in html, \
+            "Password visibility control must identify its input: " + password_id
     for element_id in ("projectTitle", "saveLocalProject", "localProjects", "cloudSyncConsent",
                        "loadCloudProjects", "cloudProjects", "cloudProjectStatus"):
         assert 'id="' + element_id + '"' in html, "Missing local/cloud project control: " + element_id
@@ -89,6 +95,8 @@ def main():
     script = (PUBLIC / "assets" / "site.js").read_text(encoding="utf-8")
     assert "accountApi('/v1/auth/login'" in script and "accountApi('/v1/me'" in script
     assert "accountApi('/v1/auth/logout'" in script
+    assert "get(accountFocusTargets[mode])?.focus()" in script
+    assert "button.setAttribute('aria-pressed', String(visible))" in script
     assert "credentials: 'omit'" in script and "redirect: 'error'" in script
     assert "parsed.protocol === 'http:' && localPage" in script, "Insecure API origins must be limited to local development"
     assert "localStorage.setItem('hotice.accessToken'" not in script

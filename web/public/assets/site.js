@@ -514,19 +514,48 @@
     return result;
   }
 
-  function selectAccountForm(mode) {
+  const accountFocusTargets = {
+    login: 'accountEmail',
+    register: 'registerEmail',
+    resend: 'resendEmail',
+    'reset-request': 'resetRequestEmail',
+    'reset-complete': 'resetNewPassword',
+  };
+
+  function selectAccountForm(mode, {focus = false} = {}) {
     accountForm.hidden = mode !== 'login';
     registerForm.hidden = mode !== 'register';
     resendForm.hidden = mode !== 'resend';
     resetRequestForm.hidden = mode !== 'reset-request';
     resetCompleteForm.hidden = mode !== 'reset-complete';
     accountEntryActions.hidden = mode !== 'login';
+    document.querySelectorAll('[data-password-toggle]').forEach((button) => {
+      const input = get(button.dataset.passwordToggle);
+      if (!input) return;
+      input.type = 'password';
+      button.textContent = button.dataset.showLabel;
+      button.setAttribute('aria-pressed', 'false');
+    });
+    if (focus && accountFocusTargets[mode]) {
+      get(accountFocusTargets[mode])?.focus();
+    }
   }
 
-  get('showRegister')?.addEventListener('click', () => selectAccountForm('register'));
-  get('showPasswordReset')?.addEventListener('click', () => selectAccountForm('reset-request'));
+  document.querySelectorAll('[data-password-toggle]').forEach((button) => {
+    const input = get(button.dataset.passwordToggle);
+    if (!input) return;
+    button.addEventListener('click', () => {
+      const visible = input.type === 'password';
+      input.type = visible ? 'text' : 'password';
+      button.textContent = button.dataset[visible ? 'hideLabel' : 'showLabel'];
+      button.setAttribute('aria-pressed', String(visible));
+    });
+  });
+
+  get('showRegister')?.addEventListener('click', () => selectAccountForm('register', {focus: true}));
+  get('showPasswordReset')?.addEventListener('click', () => selectAccountForm('reset-request', {focus: true}));
   document.querySelectorAll('[data-account-view="login"]').forEach((button) =>
-    button.addEventListener('click', () => selectAccountForm('login')));
+    button.addEventListener('click', () => selectAccountForm('login', {focus: true})));
 
   registerForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -544,7 +573,7 @@
       get('registerPassword').value = '';
       get('registerPasswordConfirm').value = '';
       get('resendEmail').value = email;
-      selectAccountForm('resend');
+      selectAccountForm('resend', {focus: true});
       status('accountStatus', 'If registration is available, a verification link will be sent. Verify your email before signing in.');
     } catch (error) {
       status('accountStatus', error.status === 403
@@ -596,7 +625,7 @@
       resetToken = null;
       get('resetNewPassword').value = '';
       get('resetConfirmPassword').value = '';
-      selectAccountForm('login');
+      selectAccountForm('login', {focus: true});
       status('accountStatus', 'Password updated and existing sessions revoked. Sign in with your new password.');
     } catch (_) {
       status('accountStatus', 'The password reset link is invalid or expired. Request a new link.');
@@ -617,15 +646,15 @@
     window.history.replaceState({}, '', incomingUrl.pathname + incomingUrl.search + (safeFragment ? '#' + safeFragment : ''));
     if (incomingResetToken && /^[a-f0-9]{64}$/i.test(incomingResetToken) && accountApiOrigin) {
       resetToken = incomingResetToken;
-      selectAccountForm('reset-complete');
+      selectAccountForm('reset-complete', {focus: true});
       status('accountStatus', 'Choose a new password. This one-time link expires in 30 minutes.');
     } else if (verificationToken && /^[a-f0-9]{64}$/i.test(verificationToken) && accountApiOrigin) {
       status('accountStatus', 'Verifying your email address…');
       accountApi('/v1/auth/verify-email', {method: 'POST', body: {token: verificationToken}})
-        .then(() => { selectAccountForm('login'); status('accountStatus', 'Email verified. You can now sign in securely.'); })
-        .catch(() => { selectAccountForm('resend'); status('accountStatus', 'This verification link is invalid or expired. Request a fresh link.'); });
+        .then(() => { selectAccountForm('login', {focus: true}); status('accountStatus', 'Email verified. You can now sign in securely.'); })
+        .catch(() => { selectAccountForm('resend', {focus: true}); status('accountStatus', 'This verification link is invalid or expired. Request a fresh link.'); });
     } else {
-      selectAccountForm(incomingResetToken ? 'reset-request' : 'resend');
+      selectAccountForm(incomingResetToken ? 'reset-request' : 'resend', {focus: true});
       status('accountStatus', incomingResetToken
         ? 'This password reset link is invalid or the account service is not configured.'
         : 'This verification link is invalid or the account service is not configured.');
@@ -1088,7 +1117,7 @@
     mockGenerationEnabled = false;
     currentMockQuote = null;
     accountSignedIn.hidden = true;
-    selectAccountForm('login');
+    selectAccountForm('login', {focus: true});
     status('accountStatus', message);
     get('mockJobs')?.replaceChildren();
     refreshMockControls();
@@ -1130,6 +1159,7 @@
           : 'Cloud access is inactive. Device-only projects remain available.';
       accountForm.hidden = true;
       accountSignedIn.hidden = false;
+      get('accountSignOut')?.focus();
       status('accountStatus', 'Signed in and verified with the HOTICE server.');
       refreshCloudControls();
       refreshMockControls();
@@ -1158,7 +1188,7 @@
     accountCanWriteCloud = false;
     accountCanReadCloud = false;
     accountSignedIn.hidden = true;
-    selectAccountForm('login');
+    selectAccountForm('login', {focus: true});
     if (projectConsent) projectConsent.checked = false;
     cloudProjectCache = [];
     get('cloudProjects')?.replaceChildren();
