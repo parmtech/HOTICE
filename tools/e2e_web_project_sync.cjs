@@ -70,6 +70,9 @@ const api = http.createServer((req, res) => {
     if (url.pathname === '/v1/auth/login' && req.method === 'POST') {
       return json(res, 200, {accessToken: token, tokenType: 'Bearer'});
     }
+    if (url.pathname === '/v1/me/preferences' && req.method === 'GET' && req.headers.authorization === 'Bearer ' + token) {
+      return json(res, 200, {preferences: {themeMode: 'dark', accent: 'electric', font: 'modern'}});
+    }
     if (req.headers.authorization !== 'Bearer ' + token && !/^\/v1\/media\/[0-9a-f-]{36}\/content$/i.test(url.pathname)) {
       return json(res, 401, {error: 'Authentication required.'});
     }
@@ -80,10 +83,11 @@ const api = http.createServer((req, res) => {
       const project = cloudProjects.get(uploadMatch[1]);
       if (!project) return json(res, 404, {error: 'Project not found'});
       if (project.files.some((file) => file.id === uploadMatch[2])) return json(res, 409, {error: 'Duplicate media id'});
+      if (req.headers.authorization !== 'Bearer ' + token) return json(res, 401, {error: 'Authentication required.'});
       const file = {id: uploadMatch[2], mime: 'video/mp4', byte_size: raw.length, scan_status: 'pending'};
       project.files.push(file);
       cloudFileBytes.set(file.id, Buffer.from(raw));
-      mediaUploadRequests.push({path: url.pathname, bytes: raw, authorized: true, contentType: req.headers['content-type']});
+      if (req.headers.authorization === 'Bearer ' + token) mediaUploadRequests.push({path: url.pathname, bytes: raw, authorized: true, contentType: req.headers['content-type']});
       return json(res, 201, {id: file.id, byteSize: raw.length, sha256: 'synthetic-sha256', mime: file.mime, scanStatus: 'pending'});
     }
     const grantMatch = url.pathname.match(/^\/v1\/files\/([0-9a-f-]{36})\/access-grants$/i);
@@ -119,9 +123,11 @@ const api = http.createServer((req, res) => {
     try { body = raw.length ? JSON.parse(raw.toString('utf8')) : null; } catch (_) { return json(res, 400, {error: 'Invalid JSON'}); }
     if (url.pathname === '/v1/auth/logout' && req.method === 'POST') return json(res, 200, {ok: true});
     if (url.pathname === '/v1/me' && req.method === 'GET') {
+      const usedBytes = [...cloudProjects.values()].flatMap((project) => project.files)
+        .reduce((total, file) => total + Number(file.byte_size || 0), 0);
       return json(res, 200, {
         user: {id: '00000000-0000-4000-8000-000000000001', email: 'browser-test@example.test'},
-        cloud: {active: true, readable: true, quotaBytes: 10485760, usedBytes: 0},
+        cloud: {active: true, readable: true, quotaBytes: 10485760, usedBytes},
         mockGeneration: {enabled: true, credits: 10, unit: 'simulated_credits', moneyValue: 0},
       });
     }
@@ -258,11 +264,13 @@ async function main() {
     const page = await browser.newPage();
     page.setDefaultTimeout(8000);
     const pageErrors = [];
+    page.on('console', (message) => { if (message.type() === 'error') console.error('browser console:', message.text()); });
     page.on('pageerror', (error) => pageErrors.push(error.message));
     await page.goto(pageOrigin, {waitUntil: 'networkidle'});
 
-    assert.match(await page.locator('#accountStatus').textContent(), /service configured/i);
+    assert.match(await page.locator('#accountStatus').textContent(), /service configuration|service configured/i);
     assert.equal(await page.locator('#cloudSyncConsent').isChecked(), false);
+    assert.equal(await page.locator('#cloudStorageUsage').isHidden(), true, 'storage usage stays hidden before verified sign-in');
     assert.equal(await page.locator('#loadCloudProjects').isDisabled(), true);
     await page.locator('#scenePrompt').fill('A synthetic scene follows a red paper kite across a quiet harbour at sunrise.');
     await page.locator('#sceneModel').selectOption('storyboard_demo');
@@ -302,6 +310,7 @@ async function main() {
     await page.locator('#accountPassword').fill('synthetic-only-password');
     await page.locator('#accountSignIn').click();
     await page.getByText('Signed in and verified with the HOTICE server.').waitFor();
+    await page.getByText('Cloud storage · 0 B used of 10 MiB').waitFor();
     await page.locator('#scenePrompt').fill('A synthetic scene follows a red paper kite across a quiet harbour at sunrise.');
     assert.equal(await page.locator('#quoteMockJob').isDisabled(), false);
     assert.equal(mockQuoteRequests.length, 0, 'sign-in alone does not submit the scene prompt');
@@ -369,6 +378,7 @@ async function main() {
     await page.getByText(/Uploaded privately\. Security scan pending/).waitFor();
     assert.equal(mediaUploadRequests.length, 1);
     assert.deepEqual(mediaUploadRequests[0].bytes, syntheticVideo, 'raw file bytes reach only the authenticated media route');
+    await page.getByText('Cloud storage · 21 B used of 10 MiB').waitFor();
     assert.equal(mediaUploadRequests[0].authorized, true);
     assert.equal(mediaUploadRequests[0].contentType, 'application/octet-stream');
     assert.equal([...cloudProjects.values()][0].files[0].scan_status, 'pending');
@@ -393,6 +403,7 @@ async function main() {
     assert.match(await page.locator('#previewVideo').evaluate((element) => element.currentSrc), /^blob:/, 'media is fetched through the grant and previewed from a temporary object URL');
     await page.locator('#cloudSyncConsent').uncheck();
     assert.equal(await page.locator('#previewVideo').getAttribute('src'), null, 'revoking consent clears the remote preview source');
+    assert.equal(await page.locator('#cloudStorageUsage').isHidden(), false, 'quota is account metadata and remains available while project consent is revoked');
     assert.equal(await cloudMediaCard.locator('.cloud-media-list').count(), 0, 'revoking consent clears cloud media metadata from the page');
     await page.locator('#cloudSyncConsent').check();
     await cloudMediaCard.getByRole('button', {name: 'View secure media'}).click();
@@ -400,6 +411,7 @@ async function main() {
     await page.evaluate(() => { window.confirm = () => true; });
     await cloudMediaCard.getByRole('button', {name: 'Remove cloud file'}).click();
     await page.getByText('Cloud file removed and quota updated. Device-local originals remain available.').waitFor();
+    await page.getByText('Cloud storage · 0 B used of 10 MiB').waitFor();
     assert.deepEqual([...cloudProjects.values()][0].files, [], 'cloud file row is removed');
     assert.equal(cloudFileBytes.size, 0, 'cloud delete removes the fixture bytes');
     assert.match(await cloudMediaCard.innerText(), /No cloud media is stored in this project/);

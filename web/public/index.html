@@ -101,6 +101,7 @@
 <div class="cloud-projects">
 <div class="cloud-project-heading"><div><h3>Optional HOTICE cloud copy</h3><p>Cloud sync requires an active entitlement and your explicit consent. Project sync sends only its title and JSON. Media stays local unless you separately choose a clip's Upload action and confirm that specific file. Uploads are private, limited to MP4/WebM clips up to 20 MiB, consume plan storage, and remain unavailable until security scanning finishes.</p></div></div>
 <label class="consent-row"><input id="cloudSyncConsent" type="checkbox"><span>I agree to load or sync the saved project I choose with my HOTICE cloud account. I can uncheck this at any time. Each media upload requires a separate confirmation.</span></label>
+<div id="cloudStorageUsage" class="cloud-storage-usage" role="status" aria-live="polite" hidden></div>
 <button id="loadCloudProjects" class="tool" type="button" disabled>Load my cloud project list</button>
 <p id="cloudProjectStatus" class="editor-note" role="status" aria-live="polite">Sign in and confirm consent to load or sync cloud projects.</p>
 <div id="cloudProjects" class="project-list" aria-live="polite"></div>
