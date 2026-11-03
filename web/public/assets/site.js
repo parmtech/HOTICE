@@ -1080,6 +1080,12 @@
   function projectStatus(message) { status('projectStatus', message); }
   function cloudProjectStatus(message) { status('cloudProjectStatus', message); }
 
+  window.addEventListener('beforeunload', (event) => {
+    if (!localProjectDirty) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+
   function mockJobStatus(message) { status('mockGenerationStatus', message); }
 
   function refreshMockControls() {

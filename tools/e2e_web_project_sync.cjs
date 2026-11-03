@@ -378,6 +378,11 @@ async function main() {
     await page.locator('#clipSpeed').selectOption('2');
     await page.locator('#applyTrim').click();
     await page.locator('#scenePrompt').fill('Autosaved browser draft survives a reload.');
+    assert.equal(await page.evaluate(() => {
+      const event = new Event('beforeunload', {cancelable: true});
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    }), true, 'Pending local edits must warn before the creator leaves the page.');
     try {
       await page.waitForFunction(() => document.querySelector('#projectStatus')?.textContent
         .includes('All changes saved on this device'), null, {timeout: 8000});
@@ -396,6 +401,11 @@ async function main() {
     }
     assert.equal(await page.locator('#scenePrompt').inputValue(),
       'Autosaved browser draft survives a reload.');
+    assert.equal(await page.evaluate(() => {
+      const event = new Event('beforeunload', {cancelable: true});
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    }), false, 'A completed local save must not keep warning on page exit.');
     const autosavedEdits = await page.evaluate(async () => {
       const db = await new Promise((resolve, reject) => {
         const request = indexedDB.open('hotice.browser-projects.v1', 1);
@@ -526,6 +536,7 @@ async function main() {
         'local project save, reload and reopen',
         'relinked imported clips by filename after project restore while preserving trim and speed',
         'automatically saved composer draft and timeline edits locally across reload',
+        'warned on page exit while local edits were pending and cleared the warning after save',
         'media data rejected before upload',
         'authenticated mock generation quote, explicit submit, idempotency and status refresh',
         'cloud controls disabled until login and consent',
