@@ -693,7 +693,30 @@ class _AvatarsPageState extends State<AvatarsPage> {
                       trailing: IconButton(
                         tooltip: 'Remove this reference',
                         icon: const Icon(Icons.delete_outline),
-                        onPressed: () {
+                        onPressed: () async {
+                          final confirmed = await showDialog<bool>(
+                                context: ctx,
+                                builder: (dialogContext) => AlertDialog(
+                                  title: const Text('Remove this face reference?'),
+                                  content: const Text(
+                                    'This removes the saved reference from this Actor. HOTICE deletes only the encrypted copy it owns; an imported original photo is left unchanged.',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(dialogContext, false),
+                                      child: const Text('Keep reference'),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () =>
+                                          Navigator.pop(dialogContext, true),
+                                      child: const Text('Remove reference'),
+                                    ),
+                                  ],
+                                ),
+                              ) ??
+                              false;
+                          if (!ctx.mounted || !confirmed) return;
                           if (widget.store.removeAvatarReference(
                             avatar.name,
                             photo.id,

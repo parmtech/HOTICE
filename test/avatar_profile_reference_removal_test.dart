@@ -5,7 +5,7 @@ import 'package:hotice/src/smart_references.dart';
 import 'package:hotice/src/state.dart';
 
 void main() {
-  testWidgets('removing a saved reference keeps the Actor profile open',
+  testWidgets('reference deletion requires confirmation and keeps profile open',
       (tester) async {
     final store = HotIceStore()..signInDemo('creator@example.com');
     addTearDown(store.dispose);
@@ -36,6 +36,17 @@ void main() {
         findsOneWidget);
 
     await tester.tap(find.byTooltip('Remove this reference'));
+    await tester.pumpAndSettle();
+    expect(find.text('Remove this face reference?'), findsOneWidget);
+    await tester.tap(find.text('Keep reference'));
+    await tester.pumpAndSettle();
+    expect(find.text('Saved face references: 1 (encrypted on this device)'),
+        findsOneWidget);
+    expect(store.avatarPackFor('Nova').assets, hasLength(1));
+
+    await tester.tap(find.byTooltip('Remove this reference'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remove reference'));
     await tester.pumpAndSettle();
 
     expect(find.text('Saved face references: 0 (encrypted on this device)'),
