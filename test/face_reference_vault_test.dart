@@ -170,6 +170,37 @@ void main() {
     );
   });
 
+  test('deletion removes interrupted migration artifacts without primary file',
+      () async {
+    final pending = File('${root.path}/$idA.aes.tmp');
+    final backup = File('${root.path}/$idA.aes.migration-backup');
+    await pending.writeAsBytes([1, 2, 3]);
+    await backup.writeAsBytes([4, 5, 6]);
+
+    expect(await vault.deletePhoto('${root.path}/$idA.aes'), isTrue);
+    expect(await pending.exists(), isFalse);
+    expect(await backup.exists(), isFalse);
+    expect(await vault.deletePhoto('${root.path}/$idA.aes'), isFalse);
+  });
+
+  test('orphan cleanup restores retained backup if primary was interrupted',
+      () async {
+    final backup = File('${root.path}/$idA.aes.migration-backup');
+    final pending = File('${root.path}/$idA.aes.tmp');
+    await backup.writeAsBytes([4, 5, 6]);
+    await pending.writeAsBytes([1, 2, 3]);
+
+    expect(
+      await vault.deleteOrphanedFiles(
+        retainedPaths: ['${root.path}/$idA.aes'],
+      ),
+      1,
+    );
+    expect(await File('${root.path}/$idA.aes').readAsBytes(), [4, 5, 6]);
+    expect(await backup.exists(), isFalse);
+    expect(await pending.exists(), isFalse);
+  });
+
   test('encrypted photo cannot be moved to another reference ID', () async {
     final source = File('${root.path}/source.jpg');
     await source.writeAsBytes([0xff, 0xd8, 0xff, 1, 2, 3]);
@@ -240,6 +271,32 @@ void main() {
     );
     expect(writes, 0);
     expect(await existing.readAsBytes(), [1, 2, 3]);
+  });
+
+  test('key loss detects an in-progress encrypted staging file', () async {
+    final staging = File('${root.path}/$idA.aes.tmp');
+    await staging.writeAsBytes([1, 2, 3]);
+    var writes = 0;
+
+    await expectLater(
+      FaceReferenceVault.loadOrCreateDeviceKey(
+        directory: root,
+        readEncodedKey: () async => null,
+        writeEncodedKey: (_) async => writes++,
+      ),
+      throwsA(isA<FaceReferenceVaultException>()),
+    );
+    expect(writes, 0);
+    expect(await staging.readAsBytes(), [1, 2, 3]);
+  });
+
+  test('orphan cleanup deletes an unreferenced encrypted staging filename',
+      () async {
+    final staging = File('${root.path}/$idA.aes.tmp');
+    await staging.writeAsBytes([1, 2, 3]);
+
+    expect(await vault.deleteOrphanedFiles(retainedPaths: []), 1);
+    expect(await staging.exists(), isFalse);
   });
 
   test('creates and verifies a device key only when the vault is empty',

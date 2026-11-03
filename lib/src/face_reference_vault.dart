@@ -140,7 +140,7 @@ class FaceReferenceVault {
     if (!await root.exists()) return false;
     await for (final entity in root.list(followLinks: false)) {
       if (entity is File &&
-          RegExp(r'^[0-9a-f-]{36}\.(?:aes|tmp|aes\.migration-backup)$')
+          RegExp(r'^[0-9a-f-]{36}\.(?:aes|aes\.tmp|tmp|aes\.migration-backup)$')
               .hasMatch(_basename(entity.path))) {
         return true;
       }
@@ -406,10 +406,6 @@ class FaceReferenceVault {
   Future<bool> deletePhoto(String path) async {
     final id = _idFromPath(path);
     final file = _fileFor(id);
-    if (await FileSystemEntity.type(file.path, followLinks: false) !=
-        FileSystemEntityType.file) {
-      return false;
-    }
     var deleted = false;
     for (final candidate in [
       file,
@@ -437,7 +433,7 @@ class FaceReferenceVault {
       if (entity is! File) continue;
       final basename = _basename(entity.path);
       final match = RegExp(
-        r'^([0-9a-f-]{36})\.(aes|tmp|aes\.migration-backup)$',
+        r'^([0-9a-f-]{36})\.(aes|aes\.tmp|tmp|aes\.migration-backup)$',
       ).firstMatch(basename);
       if (match == null) continue;
       final id = match.group(1)!;
