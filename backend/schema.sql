@@ -273,7 +273,7 @@ CREATE TABLE IF NOT EXISTS cloud_files (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Short-lived media grants are bound to one authenticated user session and file.
--- Only a digest is stored; revoking a session immediately invalidates its grants.
+-- Only a digest is stored. Revoking a session immediately invalidates its grants.
 CREATE TABLE IF NOT EXISTS media_access_grants (
   id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   token_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -294,7 +294,7 @@ CREATE TABLE IF NOT EXISTS media_access_grants (
   CONSTRAINT fk_media_grant_file FOREIGN KEY (file_id) REFERENCES cloud_files(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Minimal 90-day operational audit; no IP address, user agent or token material.
+-- Minimal operational audit retained for 90 days. No IP address, user agent or token material.
 CREATE TABLE IF NOT EXISTS media_access_audit (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   actor_user_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
