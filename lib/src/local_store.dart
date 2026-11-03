@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -20,16 +21,23 @@ class HotIceLocalArchiveException implements Exception {
 /// A device-private and authenticated-encryption archive for SMALL project
 /// metadata/storyboards. This is not the generated media storage engine, the
 /// password vault, or the cloud sync client.
-class HotIceLocalArchive {
-  HotIceLocalArchive({
-    required this.directory,
-    required this.keyLoader,
-  });
+enum LocalArchiveWriteState { unsaved, saved, saving, failed }
+
+class HotIceLocalArchive extends ChangeNotifier {
+  HotIceLocalArchive({required this.directory, required this.keyLoader});
 
   final Directory directory;
   final Future<List<int>> Function() keyLoader;
   final AesGcm _algorithm = AesGcm.with256bits();
   Future<void> _queue = Future<void>.value();
+  LocalArchiveWriteState writeState = LocalArchiveWriteState.unsaved;
+  bool _hasSavedSnapshot = false;
+  String? _latestSnapshot;
+  int _pendingWrites = 0;
+  bool _disposed = false;
+
+  /// Whether an authenticated archive snapshot exists on this device.
+  bool get hasSavedSnapshot => _hasSavedSnapshot;
 
   static const _fileName = 'hotice-projects-v1.aes';
   static const _keyName = 'hotice-projects-encryption-key-v1';
@@ -42,29 +50,35 @@ class HotIceLocalArchive {
   static Future<HotIceLocalArchive> openOnDevice() async {
     final dir = await getApplicationSupportDirectory();
     await dir.create(recursive: true);
-    return HotIceLocalArchive(directory: dir, keyLoader: () async {
-      const secrets = FlutterSecureStorage();
-      final stored = await secrets.read(key: _keyName);
-      if (stored != null) {
-        final key = base64Decode(stored);
-        if (key.length != 32) {
-          throw const HotIceLocalArchiveException('Invalid device encryption key.');
+    return HotIceLocalArchive(
+      directory: dir,
+      keyLoader: () async {
+        const secrets = FlutterSecureStorage();
+        final stored = await secrets.read(key: _keyName);
+        if (stored != null) {
+          final key = base64Decode(stored);
+          if (key.length != 32) {
+            throw const HotIceLocalArchiveException(
+              'Invalid device encryption key.',
+            );
+          }
+          return key;
         }
-        return key;
-      }
 
-      // Never silently generate a new key over a device-backup/restored file
-      // that still needs the original key.
-      if (await File('${dir.path}/$_fileName').exists() ||
-          await File('${dir.path}/$_fileName.bak').exists()) {
-        throw const HotIceLocalArchiveException(
-            'Device key unavailable for existing encrypted project data.');
-      }
-      final entropy = Random.secure();
-      final key = List<int>.generate(32, (_) => entropy.nextInt(256));
-      await secrets.write(key: _keyName, value: base64Encode(key));
-      return key;
-    });
+        // Never silently generate a new key over a device-backup/restored file
+        // that still needs the original key.
+        if (await File('${dir.path}/$_fileName').exists() ||
+            await File('${dir.path}/$_fileName.bak').exists()) {
+          throw const HotIceLocalArchiveException(
+            'Device key unavailable for existing encrypted project data.',
+          );
+        }
+        final entropy = Random.secure();
+        final key = List<int>.generate(32, (_) => entropy.nextInt(256));
+        await secrets.write(key: _keyName, value: base64Encode(key));
+        return key;
+      },
+    );
   }
 
   Future<Map<String, dynamic>?> restore() async {
@@ -77,7 +91,8 @@ class HotIceLocalArchive {
       try {
         if (await candidate.length() > _maxJsonBytes * 2) {
           throw const FormatException(
-              'Encrypted archive exceeds local data limit.');
+            'Encrypted archive exceeds local data limit.',
+          );
         }
         final blob = await candidate.readAsString();
         final sealed = jsonDecode(blob);
@@ -107,24 +122,64 @@ class HotIceLocalArchive {
           if (await _primary.exists()) await _primary.delete();
           await _backup.rename(_primary.path);
         }
+        _hasSavedSnapshot = true;
+        _setWriteState(LocalArchiveWriteState.saved);
         return data;
       } catch (_) {
         // A half-written primary may be recoverable from the prior backup.
       }
     }
     throw const HotIceLocalArchiveException(
-        'Both the current archive and its backup could not be decrypted.');
+      'Both the current archive and its backup could not be decrypted.',
+    );
   }
 
   /// Every snapshot is captured synchronously by HotIceStore. Queue writes
   /// serially so rapid edits cannot reorder snapshots or corrupt files.
   void enqueue(Map<String, dynamic> snapshot) {
-    final frozen = jsonEncode(snapshot);
-    _queue = _queue.then((_) => _write(frozen)).catchError((Object error) {
-      // Keep later writes alive, but report to Flutter diagnostics.
-      // The failed archive remains intact; no unencrypted fallback is used.
-      stderr.writeln('HOTICE local archive write failed: ${error.runtimeType}');
+    _enqueueFrozen(jsonEncode(snapshot));
+  }
+
+  /// Retry the latest complete snapshot after a prior device-write failure.
+  void retryLastWrite() {
+    final snapshot = _latestSnapshot;
+    if (snapshot != null) _enqueueFrozen(snapshot);
+  }
+
+  void _enqueueFrozen(String frozen) {
+    _latestSnapshot = frozen;
+    _pendingWrites++;
+    _setWriteState(LocalArchiveWriteState.saving);
+    _queue = _queue.then((_) async {
+      try {
+        await _write(frozen);
+        _hasSavedSnapshot = true;
+        _pendingWrites--;
+        if (_pendingWrites == 0) {
+          _setWriteState(LocalArchiveWriteState.saved);
+        }
+      } catch (error) {
+        _pendingWrites--;
+        stderr.writeln(
+          'HOTICE local archive write failed: ${error.runtimeType}',
+        );
+        if (_pendingWrites == 0) {
+          _setWriteState(LocalArchiveWriteState.failed);
+        }
+      }
     });
+  }
+
+  void _setWriteState(LocalArchiveWriteState value) {
+    if (writeState == value) return;
+    writeState = value;
+    if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 
   Future<void> flush() => _queue;
