@@ -1,17 +1,21 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
-import 'package:path_provider/path_provider.dart';
 
 import 'face_capture_quality.dart';
+import 'face_reference_vault.dart';
+import 'state.dart';
 
 class CapturedFacePhoto {
-  const CapturedFacePhoto(this.pose, this.path);
+  const CapturedFacePhoto(this.pose, this.id, this.path, this.mimeType);
   final CapturePose pose;
+  final String id;
   final String path;
+  final String mimeType;
 }
 
 /// On-device 2D guided capture. No depth mesh, biometric ID, or cloud uploads.
@@ -32,9 +36,9 @@ class _LiveFaceScanPageState extends State<LiveFaceScanPage>
   ));
   final _stability = CaptureStability();
   final _shots = <CapturedFacePhoto>[];
+  Future<FaceReferenceVault>? _vaultFuture;
   CameraController? _camera;
   CameraDescription? _description;
-  String? _directory;
   String? _error;
   String _instruction = 'Preparing face detection';
   DateTime _lastFrame = DateTime.fromMillisecondsSinceEpoch(0);
@@ -46,6 +50,17 @@ class _LiveFaceScanPageState extends State<LiveFaceScanPage>
   bool _disposed = false;
   bool _transferred = false;
   bool _invertYaw = false;
+
+  Future<FaceReferenceVault> get _vault =>
+      _vaultFuture ??= FaceReferenceVault.openOnDevice();
+
+  Future<void> _deleteVaultPhoto(String path) async {
+    try {
+      await (await _vault).deletePhoto(path);
+    } catch (_) {
+      // The next Avatar Studio sweep retries cleanup if secure storage recovers.
+    }
+  }
 
   static const _orientation = {
     DeviceOrientation.portraitUp: 0,
@@ -248,6 +263,7 @@ class _LiveFaceScanPageState extends State<LiveFaceScanPage>
     final pose = CapturePose.values[_index];
     if (mounted) setState(() => _instruction = 'Capturing ' + pose.label);
     XFile? rawCapture;
+    String? protectedPath;
     try {
       if (controller.value.isStreamingImages) await controller.stopImageStream();
       rawCapture = await controller.takePicture();
@@ -274,20 +290,22 @@ class _LiveFaceScanPageState extends State<LiveFaceScanPage>
       if (!stillQuality.ready) {
         throw StateError('Still image failed pose check: ' + stillQuality.message);
       }
-      if (_directory == null) {
-        final tmp = await getTemporaryDirectory();
-        final dir = Directory(tmp.path + '/hotice-scans-' +
-            DateTime.now().microsecondsSinceEpoch.toString());
-        await dir.create(recursive: true);
-        _directory = dir.path;
-      }
-      final target = File(_directory! + '/' + pose.name + '.jpg');
-      await File(rawCapture.path).copy(target.path);
+      final referenceId = createLocalProjectId();
+      final stored = await (await _vault).encryptPhoto(
+        File(rawCapture.path),
+        referenceId: referenceId,
+      );
+      protectedPath = stored.path;
       if (_disposed || !mounted) {
-        try { await target.delete(); } catch (_) {}
         return;
       }
-      _shots.add(CapturedFacePhoto(pose, target.path));
+      _shots.add(CapturedFacePhoto(
+        pose,
+        stored.id,
+        stored.path,
+        stored.mimeType,
+      ));
+      protectedPath = null;
       _index++;
       setState(() => _instruction = _index == CapturePose.values.length
           ? 'All five 2D photos captured. Review before saving.'
@@ -296,6 +314,7 @@ class _LiveFaceScanPageState extends State<LiveFaceScanPage>
       if (mounted && !_disposed) setState(() =>
           _instruction = 'Retake: ' + e.toString());
     } finally {
+      if (protectedPath != null) await _deleteVaultPhoto(protectedPath);
       if (rawCapture != null) {
         try { await File(rawCapture.path).delete(); } catch (_) {}
       }
@@ -317,7 +336,7 @@ class _LiveFaceScanPageState extends State<LiveFaceScanPage>
   Future<void> _retake() async {
     if (_taking || _shots.isEmpty) return;
     final last = _shots.removeLast();
-    try { await File(last.path).delete(); } catch (_) {}
+    await _deleteVaultPhoto(last.path);
     _index--;
     _stability.reset();
     if (mounted) setState(() =>
@@ -343,7 +362,7 @@ class _LiveFaceScanPageState extends State<LiveFaceScanPage>
     _detector.close();
     if (!_transferred) {
       for (final photo in _shots) {
-        File(photo.path).delete().catchError((Object _) => File(photo.path));
+        unawaited(_deleteVaultPhoto(photo.path));
       }
     }
     super.dispose();
@@ -373,9 +392,10 @@ class _LiveFaceScanPageState extends State<LiveFaceScanPage>
               const Text(
                 'HOTICE uses the selfie camera and on-device face detection '
                 'to guide you through five angles and check that your eyes '
-                'are open in the front portrait. The images remain in an '
-                'unencrypted temporary app cache for this demo session. '
-                'No photos or biometric data are uploaded. '
+                'are open in the front portrait. Accepted photos are encrypted '
+                'into private app storage using a key in OS secure storage. '
+                'A camera temporary file exists briefly before encryption and '
+                'is deleted after each capture. Nothing is uploaded. '
                 'This is NOT 3D reconstruction, identity proof or liveness verification.',
               ),
               const SizedBox(height: 20),
@@ -469,8 +489,10 @@ class _LiveFaceScanPageState extends State<LiveFaceScanPage>
                         padding: const EdgeInsets.only(right: 8),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                          child: Image.file(File(shot.path),
-                            width: 96, height: 108, fit: BoxFit.cover),
+                          child: _VaultPhotoPreview(
+                            key: ValueKey(shot.id),
+                            path: shot.path,
+                          ),
                         ),
                       ),
                     ],
@@ -499,4 +521,69 @@ class _LiveFaceScanPageState extends State<LiveFaceScanPage>
       ),
     );
   }
+}
+
+class _VaultPhotoPreview extends StatefulWidget {
+  const _VaultPhotoPreview({super.key, required this.path});
+  final String path;
+
+  @override
+  State<_VaultPhotoPreview> createState() => _VaultPhotoPreviewState();
+}
+
+class _VaultPhotoPreviewState extends State<_VaultPhotoPreview> {
+  late Future<Uint8List> _photo;
+
+  @override
+  void initState() {
+    super.initState();
+    _photo = _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _VaultPhotoPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.path != widget.path) _photo = _load();
+  }
+
+  Future<Uint8List> _load() async =>
+      (await FaceReferenceVault.openOnDevice()).decryptPhoto(widget.path);
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 96,
+        height: 108,
+        child: FutureBuilder<Uint8List>(
+          future: _photo,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return const ColoredBox(
+                color: Color(0xFF232A38),
+                child: Icon(Icons.lock_outline, color: Colors.white70),
+              );
+            }
+            if (!snapshot.hasData) {
+              return const ColoredBox(
+                color: Color(0xFF232A38),
+                child: Center(
+                  child: SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              );
+            }
+            return Image.memory(
+              snapshot.data!,
+              width: 96,
+              height: 108,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => const ColoredBox(
+                color: Color(0xFF232A38),
+                child: Icon(Icons.broken_image_outlined, color: Colors.white70),
+              ),
+            );
+          },
+        ),
+      );
 }

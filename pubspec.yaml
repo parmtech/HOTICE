@@ -15,6 +15,8 @@ dependencies:
   camera_android: ^0.10.12 # Camera2 NV21 ML Kit compatibility on Android
   google_mlkit_face_detection: ^0.15.1
   path_provider: ^2.1.5
+  cryptography: ^2.9.0
+  flutter_secure_storage: ^10.3.4
 
 dev_dependencies:
   flutter_test:

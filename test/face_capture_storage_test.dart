@@ -95,4 +95,79 @@ void main() {
       expect(await photo.exists(), isTrue);
     },
   );
+
+  test('cleans only pinned Android/iOS camera-plugin temporary still names',
+      () async {
+    final androidStale = File('${root.path}/CAPabc12.jpg');
+    final androidUnknown = File('${root.path}/CAPnot-a-camera.jpg');
+    final iosDirectory = Directory('${root.path}/camera/pictures')
+      ..createSync(recursive: true);
+    final iosStale = File(
+      '${iosDirectory.path}/CAP_1DBD4A72-BFDE-4330-8A21-5F01D9BE4E61.jpg',
+    );
+    final iosUnknown = File('${iosDirectory.path}/CAP_custom.jpg');
+    for (final file in [androidStale, androidUnknown, iosStale, iosUnknown]) {
+      await file.writeAsBytes([1, 2, 3]);
+    }
+
+    final deleted = await deleteAbandonedCameraCaptureFiles(
+      temporaryRoot: root,
+      androidLayout: true,
+      iosLayout: true,
+    );
+
+    expect(deleted, 2);
+    expect(await androidStale.exists(), isFalse);
+    expect(await iosStale.exists(), isFalse);
+    expect(await androidUnknown.exists(), isTrue);
+    expect(await iosUnknown.exists(), isTrue);
+  });
+
+  test('removes only file-picker copies inside its known platform cache layout',
+      () async {
+    final androidCopy = File(
+      '${root.path}/file_picker/1730723400000/face.jpg',
+    );
+    await androidCopy.parent.create(recursive: true);
+    await androidCopy.writeAsBytes([1, 2, 3]);
+    final darwinCopy = File(
+      '${root.path}/1DBD4A72-BFDE-4330-8A21-5F01D9BE4E61/face.jpg',
+    );
+    await darwinCopy.parent.create(recursive: true);
+    await darwinCopy.writeAsBytes([4, 5, 6]);
+    final unrelated = File('${root.path}/user-owned/face.jpg');
+    await unrelated.parent.create(recursive: true);
+    await unrelated.writeAsBytes([7, 8, 9]);
+
+    expect(
+      await deletePickerCacheCopyIfOwned(
+        selectedFile: androidCopy,
+        temporaryRoot: root,
+        androidLayout: true,
+        darwinLayout: false,
+      ),
+      isTrue,
+    );
+    expect(
+      await deletePickerCacheCopyIfOwned(
+        selectedFile: darwinCopy,
+        temporaryRoot: root,
+        androidLayout: false,
+        darwinLayout: true,
+      ),
+      isTrue,
+    );
+    expect(
+      await deletePickerCacheCopyIfOwned(
+        selectedFile: unrelated,
+        temporaryRoot: root,
+        androidLayout: true,
+        darwinLayout: true,
+      ),
+      isFalse,
+    );
+    expect(await androidCopy.exists(), isFalse);
+    expect(await darwinCopy.exists(), isFalse);
+    expect(await unrelated.exists(), isTrue);
+  });
 }

@@ -7,6 +7,7 @@ import 'smart_references.dart';
 import 'live_face_capture.dart';
 import 'face_capture_quality.dart';
 import 'face_capture_storage.dart';
+import 'face_reference_vault.dart';
 import 'dart:io';
 import 'avatar_identity.dart';
 import 'design.dart';
@@ -44,13 +45,34 @@ class _AvatarsPageState extends State<AvatarsPage> {
       final retainedPaths = widget.store.avatars
           .expand((avatar) => widget.store.avatarPackFor(avatar.name).assets)
           .where((asset) => asset.ownedTemporaryFile)
-          .map((asset) => asset.localPath);
+          .map((asset) => asset.localPath)
+          .toList();
       await deleteOrphanedFaceCaptureBatches(
         temporaryRoot: temporaryRoot,
         retainedPhotoPaths: retainedPaths,
       );
+      await deleteAbandonedCameraCaptureFiles(
+        temporaryRoot: temporaryRoot,
+        androidLayout: Platform.isAndroid,
+        iosLayout: Platform.isIOS,
+      );
+      final vault = await FaceReferenceVault.openOnDevice();
+      await vault.deleteOrphanedFiles(retainedPaths: retainedPaths);
     } catch (_) {
       // Cleanup is best-effort; never block the user's Avatar Studio workflow.
+    }
+  }
+
+  Future<void> _removePickerCacheCopy(String path) async {
+    try {
+      await deletePickerCacheCopyIfOwned(
+        selectedFile: File(path),
+        temporaryRoot: await getTemporaryDirectory(),
+        androidLayout: Platform.isAndroid,
+        darwinLayout: Platform.isIOS,
+      );
+    } catch (_) {
+      // The OS may already have reclaimed a temporary picker copy.
     }
   }
 
@@ -143,6 +165,12 @@ class _AvatarsPageState extends State<AvatarsPage> {
       MaterialPageRoute(builder: (_) => const LiveFaceScanPage()),
     );
     if (photos == null || photos.isEmpty) return;
+    if (!mounted) {
+      for (final photo in photos) {
+        try { await File(photo.path).delete(); } catch (_) {}
+      }
+      return;
+    }
     const viewByPose = <CapturePose, FaceView>{
       CapturePose.front: FaceView.front,
       CapturePose.left45: FaceView.left45,
@@ -155,11 +183,11 @@ class _AvatarsPageState extends State<AvatarsPage> {
       final success = widget.store.addAvatarReference(
         avatar.name,
         AvatarReference(
-          id: createLocalProjectId(),
+          id: shot.id,
           ownerName: avatar.name,
           role: ReferenceRole.avatar,
           format: ReferenceFormat.image,
-          mimeType: 'image/jpeg',
+          mimeType: shot.mimeType,
           localPath: shot.path,
           view: viewByPose[shot.pose],
           ownedTemporaryFile: true,
@@ -170,7 +198,7 @@ class _AvatarsPageState extends State<AvatarsPage> {
       if (success) {
         saved++;
       } else {
-        try { await File(shot.path).delete(); } catch (_) {}
+        try { await (await FaceReferenceVault.openOnDevice()).deletePhoto(shot.path); } catch (_) {}
       }
     }
     if (!mounted) return;
@@ -181,6 +209,12 @@ class _AvatarsPageState extends State<AvatarsPage> {
   }
 
   Future<void> importFacePhoto(StudioAvatar avatar) async {
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Encrypted face-photo storage is currently available on Android and iOS.'),
+      ));
+      return;
+    }
     final view = await showModalBottomSheet<FaceView>(
       context: context,
       showDragHandle: true,
@@ -206,8 +240,10 @@ class _AvatarsPageState extends State<AvatarsPage> {
         title: const Text('Import face reference?'),
         content: const Text(
           'This photo contains sensitive likeness data. HOTICE will retain '
-          'only a temporary local picker file reference in this demo session. '
-          'It is not a verified 3D scan, encrypted vault, or cloud backup.'),
+          'an encrypted copy in private storage on this device. The reference '
+          'index lasts for this app session; unreferenced copies are cleaned '
+          'when Avatar Studio next opens. Nothing is uploaded. This is not a '
+          'verified 3D scan or cloud backup.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false),
               child: const Text('Cancel')),
@@ -217,11 +253,24 @@ class _AvatarsPageState extends State<AvatarsPage> {
       ),
     );
     if (!mounted || consent != true) return;
+    String? selectedPickerPath;
     try {
       final file = await FilePicker.pickFile(type: FileType.image);
-      if (!mounted || file == null) return;
+      if (file == null) return;
+      selectedPickerPath = file.path;
+      if (!mounted) {
+        if (selectedPickerPath != null) {
+          await _removePickerCacheCopy(selectedPickerPath);
+        }
+        return;
+      }
       final fileBytes = file.lengthSync() ?? await file.length();
-      if (!mounted) return;
+      if (!mounted) {
+        if (selectedPickerPath != null) {
+          await _removePickerCacheCopy(selectedPickerPath);
+        }
+        return;
+      }
       final ext = (file.extension ?? '').toLowerCase();
       final mime = switch (ext) {
         'jpg' || 'jpeg' => 'image/jpeg',
@@ -232,25 +281,44 @@ class _AvatarsPageState extends State<AvatarsPage> {
       final path = file.path;
       if (mime == null || path == null || path.isEmpty ||
           fileBytes == null || fileBytes <= 0 || fileBytes > 15 * 1024 * 1024) {
+        if (path != null && path.isNotEmpty) {
+          await _removePickerCacheCopy(path);
+        }
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Choose a JPG/PNG/WebP photo under 15 MB.'),
         ));
         return;
       }
+      final id = createLocalProjectId();
+      late final StoredFaceReference encrypted;
+      try {
+        encrypted = await (await FaceReferenceVault.openOnDevice())
+            .encryptPhoto(File(path), referenceId: id);
+      } finally {
+        await _removePickerCacheCopy(path);
+      }
       final saved = widget.store.addAvatarReference(avatar.name, AvatarReference(
-        id: createLocalProjectId(),
+        id: encrypted.id,
         ownerName: avatar.name,
         role: ReferenceRole.avatar,
         format: ReferenceFormat.image,
-        mimeType: mime,
-        localPath: path,
+        mimeType: encrypted.mimeType,
+        localPath: encrypted.path,
         view: view,
+        ownedTemporaryFile: true,
       ));
+      if (!saved) {
+        await (await FaceReferenceVault.openOnDevice())
+            .deletePhoto(encrypted.path);
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(saved
           ? '${view.label} reference added for this session.'
           : 'Could not add reference. Check avatar and limit (16).')));
     } catch (_) {
+      if (selectedPickerPath != null) {
+        await _removePickerCacheCopy(selectedPickerPath);
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Image selection failed or was cancelled.'),
@@ -331,7 +399,7 @@ class _AvatarsPageState extends State<AvatarsPage> {
             subtitle: 'Create once. Reuse the same character description across your shots.',
           ),
           const DemoNotice(
-            'Beta: live guided multi-angle 2D capture is available on Android/iOS with consent, plus manual references. Photos are temporarily cached, not encrypted. No 3D reconstruction, identity verification or cloud storage.'
+            'Beta: live guided multi-angle 2D capture is available on Android/iOS with consent. Accepted face photos use device-key AES-GCM encryption; reference metadata remains session-only. No 3D reconstruction, identity verification or cloud storage.'
           ),
           const SizedBox(height: 20),
           Wrap(

@@ -2,14 +2,16 @@
 
 **Date:** 28 October 2026  
 **Feature branch:** `feat/smart-avatar-reference-engine`  
-**Status:** Offline planner + Android/iOS live guided 2D camera capture implemented in source; NOT a 3D reconstruction, liveness/biometric identity verification, encrypted vault, cloud backup, or connected AI generation adapter. Live camera behaviour awaits real-device field testing.
+**Status:** Offline planner + Android/iOS live guided 2D camera capture and encrypted image blobs implemented in source; NOT a 3D reconstruction, liveness/biometric identity verification, persistent avatar index, cloud backup, or connected AI generation adapter. Live camera behaviour awaits real-device field testing.
 
 ## Live camera capture added 28 October 2026
 
 - `lib/src/live_face_capture.dart`: on-device Camera2/NV21 on Android or BGRA on iOS, ML Kit face detection, yaw/pitch/roll guidance, face count/framing, front-view eye-open checks, sampled exposure/detail heuristics and three good frames required before automatic still capture.
 - After each shutter, reruns ML Kit on the actual captured still and rejects missing/multiple faces or front-view closed eyes.
-- Capture requires explicit consent; five photos (front, two 45-degree, two profiles) are saved only to a temporary app cache, then added to the chosen Actor identity reference pack on confirmation. Cancelling, removal, and the next Avatar Studio entry after a crash clean up app-owned temporary images where possible.
-- Avatar Studio performs a best-effort cache sweep on entry: abandoned HOTICE scanner batches are removed after an app restart, while paths still referenced by current in-memory avatars are preserved. The sweep matches only generated scanner directory/photo names and leaves unknown files, links and nested content untouched.
+- Capture requires explicit consent; the camera plugin creates one transient raw still which is immediately validated, encrypted with AES-256-GCM, copied to app-private support storage, and deleted before the next capture. The five encrypted photos are added to the chosen Actor reference pack only after confirmation. Cancelling, retaking, removal, and app-start cleanup remove HOTICE-owned files where possible.
+- Imported JPG/PNG/WebP face photos are copied into the same encrypted device vault after file-signature and size checks; the user's source file is not modified and the known file-picker cache copy is deleted immediately after use. A device-specific key is stored with OS secure storage. If an encrypted blob exists but its key is unavailable, the vault fails closed and leaves that blob intact.
+- The reference index is still held only in memory in this branch. Unreferenced encrypted blobs are cleaned the next time Avatar Studio opens after an app restart. The encrypted blobs are not backed up or synced, and clearing or losing the OS key makes them unreadable.
+- Avatar Studio performs a best-effort cache sweep on entry: abandoned HOTICE scanner batches and raw stills matching the pinned Android/iOS camera plugin's exact generated names are removed after an app restart, while encrypted paths still referenced by current in-memory avatars are preserved. The sweep leaves unknown files, links and nested content untouched.
 - Camera lifecycle pause/resume handling, streaming throttling, capture reentrancy guard, retries and user-controlled yaw mirror reversal. No selfie audio.
 - Prominent Live face capture tab in Avatar Studio, with a character selector, separate from the original nonfunctional 3D scan guide.
 - `tools/configure_face_capture.py`: idempotent Android permission and iOS 15.5 camera/privacy configuration after ephemeral Flutter scaffold generation.
@@ -31,7 +33,7 @@
 
 ## Important limitations
 
-The app's current FilePicker integration returns platform-dependent temporary paths. Source images are **not copied into an encrypted persistent vault**. After app process death, OS cleanup or sign-out, references may no longer exist. Manually imported photos are **not** quality-assessed or converted to 3D. The separate new live scanner uses ML Kit face detection and open-eye checks, but this is neither biometric identity validation nor anti-spoof liveness detection. Do not label either capture method a 3D mesh scan.
+The avatar reference index and ownership metadata are session-only; they are not yet persisted into the encrypted project archive or bound to its stable workspace ID. Encrypted image blobs survive process death only until orphan cleanup runs the next time Avatar Studio opens. There is no user-controlled recovery/export key or encrypted backup for these media blobs. Manually imported photos are **not** quality-assessed or converted to 3D. The live scanner uses ML Kit face detection and open-eye checks, but this is neither biometric identity validation nor anti-spoof liveness detection. Do not label either capture method a 3D mesh scan.
 
 Four image slots in `ReferenceModelCapability.demo` are a **UI simulation**, not an official provider capability. No model adapter should read the demo limits as true. Neither the backend nor real generation endpoint currently accepts these reference plans. The planner's `canSubmit` is false for unverified profiles. No vendor input is silently inferred from the extension.
 

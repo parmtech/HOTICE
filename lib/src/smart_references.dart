@@ -1,7 +1,7 @@
 import 'video_models.dart';
 
-/// Reference metadata only. This object does not copy, encrypt, or upload
-/// media; its localPath may point to a temporary picker cache file.
+/// Reference metadata only. Face-photo bytes are kept in the encrypted local
+/// vault; this object never embeds or uploads media bytes.
 enum ReferenceRole { avatar, location, object, style }
 enum ReferenceFormat { image, glb }
 enum FaceView {
@@ -40,7 +40,7 @@ class AvatarReference {
   final FaceView? view;
   /// Must be true only after a real capture/reconstruction quality gate.
   final bool isScanVerified;
-  /// Only HOTICE-generated temporary captures may be safely deleted by us.
+  /// Only HOTICE-owned encrypted vault files may be safely deleted by us.
   final bool ownedTemporaryFile;
 
   AvatarReference withOwner(String next) => AvatarReference(
