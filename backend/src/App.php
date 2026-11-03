@@ -124,6 +124,10 @@ final class App
             if ($route === '/v1/auth/login' && $method === 'POST') {
                 $this->login(); return;
             }
+            if (preg_match('~^/v1/media/([a-f0-9-]{36})/content$~D', $route, $m)
+                && Support::isUuid($m[1]) && $method === 'GET') {
+                $this->serveGrantedMedia($m[1], $requestId); return;
+            }
             $user = $this->authenticate();
             if ($route === '/v1/auth/logout' && $method === 'POST') {
                 $this->db->prepare('UPDATE sessions SET revoked_at=UTC_TIMESTAMP() WHERE id=? AND user_id=?')
@@ -186,8 +190,12 @@ final class App
                 && Support::isUuid($m[1]) && Support::isUuid($m[2]) && $method === 'PUT') {
                 $this->uploadFile($user['id'], $m[1], $m[2]); return;
             }
+            if (preg_match('~^/v1/files/([a-f0-9-]{36})/access-grants$~D', $route, $m)
+                && Support::isUuid($m[1]) && $method === 'POST') {
+                $this->issueMediaAccessGrant($user['id'], $user['session_id'], $m[1], $requestId); return;
+            }
             if (preg_match('~^/v1/files/([a-f0-9-]{36})$~D', $route, $m) && Support::isUuid($m[1])) {
-                if ($method === 'GET') { $this->downloadFile($user['id'], $m[1]); return; }
+                if ($method === 'GET') { $this->downloadFile($user['id'], $m[1], $requestId); return; }
                 if ($method === 'DELETE') { $this->deleteFile($user['id'], $m[1]); return; }
             }
             throw new ApiError(404, 'Endpoint not found.');
@@ -1068,7 +1076,86 @@ final class App
         }
     }
 
-    private function downloadFile(string $user, string $id): void
+    private function issueMediaAccessGrant(string $user, string $sessionId, string $id, string $requestId): void
+    {
+        $this->requireCloud($user, false);
+        $ttl = max(30, min(300, (int) ($this->config['media_access_grant_ttl_seconds'] ?? 120)));
+        $rawToken = bin2hex(random_bytes(32));
+        $grantId = Support::uuid();
+        $expiresAt = gmdate('Y-m-d H:i:s', time() + $ttl);
+        $storage = $this->privateDir();
+
+        $this->db->beginTransaction();
+        $userLock = $this->db->prepare('SELECT id FROM users WHERE id=? FOR UPDATE');
+        $userLock->execute([$user]);
+        if (!$userLock->fetchColumn()) throw new ApiError(401, 'Account is unavailable.');
+        $rate = $this->db->prepare('SELECT COUNT(*) FROM media_access_grants WHERE user_id=? AND created_at>DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE)');
+        $rate->execute([$user]);
+        if ((int) $rate->fetchColumn() >= 30) throw new ApiError(429, 'Media access grant rate limit reached.');
+        $q = $this->db->prepare('SELECT storage_name,scan_status FROM cloud_files WHERE id=? AND user_id=? FOR UPDATE');
+        $q->execute([$id, $user]);
+        $file = $q->fetch();
+        if (!$file) throw new ApiError(404, 'Media not found.');
+        if ($file['scan_status'] !== 'clean') throw new ApiError(423, 'Media is unavailable until its security scan is complete.');
+        if (!Support::secureFileName((string) $file['storage_name'])) throw new RuntimeException('Invalid stored file path.');
+        $path = $storage . '/' . $file['storage_name'];
+        if (is_link($path) || !is_file($path) || !is_readable($path)) throw new ApiError(404, 'Stored media unavailable.');
+        $this->db->prepare('INSERT INTO media_access_grants (id,token_sha256,user_id,session_id,file_id,expires_at) VALUES (?,?,?,?,?,?)')
+            ->execute([$grantId, hash('sha256', $rawToken), $user, $sessionId, $id, $expiresAt]);
+        $this->recordMediaAccess($user, $id, $grantId, 'grant_issued', $requestId);
+        $this->db->commit();
+        $this->send(201, [
+            'accessToken' => $rawToken,
+            'tokenType' => 'Hotice-Media',
+            'contentPath' => '/v1/media/' . $id . '/content',
+            'expiresAt' => gmdate('Y-m-d\TH:i:s\Z', strtotime($expiresAt . ' UTC')),
+        ]);
+    }
+
+    private function serveGrantedMedia(string $id, string $requestId): void
+    {
+        $auth = (string) ($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+        if (!preg_match('/^Hotice-Media ([a-f0-9]{64})$/D', $auth, $m)) {
+            throw new ApiError(401, 'A valid short-lived media access grant is required.');
+        }
+        $this->db->beginTransaction();
+        $q = $this->db->prepare("SELECT g.id AS grant_id,g.user_id,g.session_id,g.access_count,f.storage_name,f.mime,f.byte_size,f.scan_status
+            FROM media_access_grants g
+            JOIN cloud_files f ON f.id=g.file_id AND f.user_id=g.user_id
+            JOIN sessions s ON s.id=g.session_id AND s.user_id=g.user_id
+            JOIN users u ON u.id=g.user_id
+            LEFT JOIN user_admin_state uas ON uas.user_id=u.id
+            WHERE g.token_sha256=? AND g.file_id=? AND g.expires_at>UTC_TIMESTAMP()
+              AND g.access_count<20
+              AND s.revoked_at IS NULL AND s.expires_at>UTC_TIMESTAMP() AND uas.disabled_at IS NULL
+            LIMIT 1 FOR UPDATE");
+        $q->execute([hash('sha256', strtolower($m[1])), $id]);
+        $file = $q->fetch();
+        if (!$file) throw new ApiError(401, 'Media access grant expired, revoked or invalid.');
+        $this->requireCloud($file['user_id'], false);
+        if ($file['scan_status'] !== 'clean') throw new ApiError(423, 'Media is unavailable until its security scan is complete.');
+        if (!Support::secureFileName((string) $file['storage_name'])) throw new \RuntimeException('Invalid stored file path.');
+        $path = $this->privateDir() . '/' . $file['storage_name'];
+        if (is_link($path) || !is_file($path) || !is_readable($path)) throw new ApiError(404, 'Stored media unavailable.');
+        $this->db->prepare('UPDATE media_access_grants SET first_access_at=COALESCE(first_access_at,UTC_TIMESTAMP()),last_access_at=UTC_TIMESTAMP(),access_count=access_count+1 WHERE id=? AND access_count<20')
+            ->execute([$file['grant_id']]);
+        if ((int) $file['access_count'] === 0) {
+            $this->recordMediaAccess($file['user_id'], $id, $file['grant_id'], 'content_served', $requestId);
+        }
+        $this->db->commit();
+        header('Content-Type: ' . $file['mime']);
+        header('Content-Disposition: attachment; filename="hotice-media-' . $id . '"');
+        header('Content-Length: ' . (int) $file['byte_size']);
+        readfile($path);
+    }
+
+    private function recordMediaAccess(string $user, string $file, ?string $grant, string $event, string $requestId): void
+    {
+        $this->db->prepare('INSERT INTO media_access_audit (actor_user_id,file_id,grant_id,event_code,request_id) VALUES (?,?,?,?,?)')
+            ->execute([$user, $file, $grant, $event, $requestId]);
+    }
+
+    private function downloadFile(string $user, string $id, string $requestId): void
     {
         $this->requireCloud($user, false);
         $q = $this->db->prepare('SELECT storage_name,mime,byte_size,scan_status FROM cloud_files WHERE id=? AND user_id=?');
@@ -1083,7 +1170,8 @@ final class App
         $name = $file['storage_name'];
         if (!Support::secureFileName($name)) throw new \RuntimeException('Invalid stored file path.');
         $path = $this->privateDir() . '/' . $name;
-        if (!is_file($path) || !is_readable($path)) throw new ApiError(404, 'Stored media unavailable.');
+        if (is_link($path) || !is_file($path) || !is_readable($path)) throw new ApiError(404, 'Stored media unavailable.');
+        $this->recordMediaAccess($user, $id, null, 'direct_download', $requestId);
         header('Content-Type: ' . $file['mime']);
         header('Content-Disposition: attachment; filename="hotice-media-' . $id . '"');
         header('Content-Length: ' . (int) $file['byte_size']);
