@@ -261,42 +261,43 @@ class _StudioShellState extends State<StudioShell> {
             if (wide)
               SizedBox(
                 width: 238,
-                child: ColoredBox(
+                child: Material(
                   color: Theme.of(context).colorScheme.surface,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Padding(
-                        padding: EdgeInsets.fromLTRB(24, 28, 12, 34),
-                        child: HotIceLogo(),
-                      ),
-                      for (final option in _nav)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 3,
-                          ),
-                          child: ListTile(
-                            selected: selected == option.index,
-                            selectedTileColor:
-                                store.accent.color.withValues(alpha: .13),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
+                  child: Semantics(
+                    label: 'Studio navigation',
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(10, 18, 10, 18),
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(14, 10, 8, 28),
+                          child: HotIceLogo(),
+                        ),
+                        for (final option in _nav)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 3),
+                            child: ListTile(
+                              selected: selected == option.index,
+                              selectedTileColor:
+                                  store.accent.color.withValues(alpha: .13),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              leading: Icon(option.icon),
+                              title: Text(option.label),
+                              onTap: () => navigate(option.index),
                             ),
-                            leading: Icon(option.icon),
-                            title: Text(option.label),
-                            onTap: () => navigate(option.index),
+                          ),
+                        const SizedBox(height: 28),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            'HOTICE • Studio prototype\n'
+                            'AI rendering and payments are not connected',
+                            style: TextStyle(fontSize: 11),
                           ),
                         ),
-                      const Spacer(),
-                      const Padding(
-                        padding: EdgeInsets.all(18),
-                        child: Text(
-                          'HOTICE • Studio prototype\nAI and payments are not connected',
-                          style: TextStyle(fontSize: 11),
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
