@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import 'local_archive_contract.dart';
 import 'video_models.dart';
 
 /// Pricing is in whole US cents to avoid floating point billing errors.
@@ -30,7 +31,8 @@ String? _accountIdFromWorkspaceId(String workspaceId) {
   if (!workspaceId.startsWith('account:')) return null;
   final encoded = workspaceId.substring('account:'.length);
   try {
-    final accountId = utf8.decode(base64Url.decode(base64Url.normalize(encoded)));
+    final accountId =
+        utf8.decode(base64Url.decode(base64Url.normalize(encoded)));
     return _isValidStableAccountId(accountId) &&
             _accountWorkspaceId(accountId) == workspaceId
         ? accountId
@@ -65,6 +67,30 @@ class HotProject {
   final String title;
   final DateTime createdAt;
   const HotProject(this.id, this.title, this.createdAt);
+}
+
+class LocalProjectTransferCandidate {
+  const LocalProjectTransferCandidate({
+    required this.sourceProfileEmail,
+    required this.project,
+  });
+
+  final String sourceProfileEmail;
+  final HotProject project;
+}
+
+class LocalProjectTransferResult {
+  const LocalProjectTransferResult({
+    required this.project,
+    required this.draftCount,
+    required this.storyboardCount,
+    required this.avatarCount,
+  });
+
+  final HotProject project;
+  final int draftCount;
+  final int storyboardCount;
+  final int avatarCount;
 }
 
 class PendingMockSubmission {
@@ -221,6 +247,7 @@ class HotIceStore extends ChangeNotifier {
   StudioAccent accent = StudioAccent.electric;
   StudioFont font = StudioFont.modern;
   String selectedAccount = 'creator@hotice.demo';
+
   /// Local selection may outlive a session; it is never itself authentication.
   String selectedWorkspaceId = 'demo:creator@hotice.demo';
   String? authenticatedUserId;
@@ -240,6 +267,25 @@ class HotIceStore extends ChangeNotifier {
   List<MusicVideoPlan> get musicPlans => _workspace.musicPlans;
   List<PendingMockSubmission> get pendingMockSubmissions =>
       List.unmodifiable(_workspace.pendingMockSubmissions);
+
+  /// User-owned projects in local demo profiles that can be copied into the
+  /// active authenticated account. Seeded examples are deliberately excluded.
+  List<LocalProjectTransferCandidate> get localProjectTransferCandidates {
+    if (authenticatedUserId == null ||
+        _accountWorkspaceId(authenticatedUserId!) != selectedWorkspaceId) {
+      return const [];
+    }
+    return List.unmodifiable([
+      for (final email in accounts.toSet())
+        for (final project in (_workspaces[_demoWorkspaceId(email)]?.projects ??
+            const <HotProject>[]))
+          if (isCloudProjectId(project.id))
+            LocalProjectTransferCandidate(
+              sourceProfileEmail: email,
+              project: project,
+            ),
+    ]);
+  }
 
   List<PendingMockSubmission> pendingMockSubmissionsFor(String projectId) =>
       List.unmodifiable(_workspace.pendingMockSubmissions.where(
@@ -557,6 +603,180 @@ class HotIceStore extends ChangeNotifier {
     selectedWorkspaceId = _demoWorkspaceId(normalized);
     authenticatedUserId = null;
     notifyListeners();
+  }
+
+  /// Make a local-only copy from a demo/legacy profile into the authenticated
+  /// account workspace. The source is never modified. Cloud revisions and
+  /// pending requests are intentionally not copied; those remain bound to the
+  /// source profile and any cloud save requires a separate explicit action.
+  LocalProjectTransferResult copyLocalProjectFromProfile(
+    String sourceProfileEmail,
+    String sourceProjectId,
+  ) {
+    final accountId = authenticatedUserId;
+    if (accountId == null ||
+        _accountWorkspaceId(accountId) != selectedWorkspaceId) {
+      throw StateError(
+          'Sign in to the account that should receive this local copy.');
+    }
+    final email = sourceProfileEmail.trim().toLowerCase();
+    if (!isValidDemoEmail(email) || !accounts.contains(email)) {
+      throw StateError('Choose a saved local profile.');
+    }
+    final sourceWorkspaceId = _demoWorkspaceId(email);
+    if (sourceWorkspaceId == selectedWorkspaceId) {
+      throw StateError('Choose a different local profile.');
+    }
+    final source = _workspaces[sourceWorkspaceId];
+    if (source == null) throw StateError('That local profile is unavailable.');
+    final sourceProject = source.projects.where((p) => p.id == sourceProjectId);
+    if (sourceProject.isEmpty || !isCloudProjectId(sourceProjectId)) {
+      throw StateError('That project is not an eligible user-created project.');
+    }
+
+    final original = sourceProject.first;
+    final sourceDrafts = source.drafts
+        .where((draft) => draft.projectId == sourceProjectId)
+        .toList(growable: false);
+    final sourcePlans = source.musicPlans
+        .where((plan) => plan.projectId == sourceProjectId)
+        .toList(growable: false);
+    final avatarNames = <String>{
+      for (final draft in sourceDrafts)
+        if (draft.avatarName != 'None') draft.avatarName,
+      for (final draft in sourceDrafts)
+        for (final actor in draft.actors) actor.avatarName,
+      for (final plan in sourcePlans)
+        if (plan.avatarName != 'None') plan.avatarName,
+    };
+    final referencedAvatars = source.avatars
+        .where((avatar) => avatarNames.contains(avatar.name))
+        .toList(growable: false);
+
+    final target = _workspace;
+    if (target.projects.length >= 500 ||
+        target.drafts.length + sourceDrafts.length > 1000 ||
+        target.musicPlans.length + sourcePlans.length > 500) {
+      throw StateError('This account workspace is at its local project limit.');
+    }
+
+    final copiedAvatarNames = <String, String>{};
+    final addedAvatars = <StudioAvatar>[];
+    final usedNames = target.avatars.map((a) => a.name.toLowerCase()).toSet();
+    for (final avatar in referencedAvatars) {
+      final identical = target.avatars.where((existing) =>
+          existing.name.toLowerCase() == avatar.name.toLowerCase() &&
+          existing.style == avatar.style &&
+          existing.identityNotes == avatar.identityNotes);
+      if (identical.isNotEmpty) {
+        copiedAvatarNames[avatar.name] = identical.first.name;
+        continue;
+      }
+      var newName = avatar.name;
+      var suffix = 2;
+      while (usedNames.contains(newName.toLowerCase())) {
+        newName = '${avatar.name} (copy $suffix)';
+        suffix++;
+      }
+      usedNames.add(newName.toLowerCase());
+      copiedAvatarNames[avatar.name] = newName;
+      addedAvatars.add(StudioAvatar(
+        newName,
+        avatar.style,
+        identityNotes: avatar.identityNotes,
+      ));
+    }
+    String avatarName(String value) => copiedAvatarNames[value] ?? value;
+
+    var copiedId = createLocalProjectId();
+    while (target.projects.any((project) => project.id == copiedId)) {
+      copiedId = createLocalProjectId();
+    }
+    final copiedProject =
+        HotProject(copiedId, original.title, original.createdAt);
+    final copiedDrafts = <GenerationDraft>[
+      for (final draft in sourceDrafts)
+        GenerationDraft(
+          project: original.title,
+          prompt: draft.prompt,
+          model: draft.model,
+          aspectRatio: draft.aspectRatio,
+          durationSeconds: draft.durationSeconds,
+          createdAt: draft.createdAt,
+          projectId: copiedId,
+          avatarName: avatarName(draft.avatarName),
+          modelId: draft.modelId,
+          requestedAttachments: List.unmodifiable(draft.requestedAttachments),
+          actors: List.unmodifiable([
+            for (final actor in draft.actors)
+              SceneActor(
+                avatarName: avatarName(actor.avatarName),
+                sceneName: actor.sceneName,
+              ),
+          ]),
+          referenceFiles: List.unmodifiable([
+            for (final reference in draft.referenceFiles)
+              SceneReference(
+                type: reference.type,
+                fileName: reference.fileName,
+                bytes: reference.bytes,
+              ),
+          ]),
+          negativePrompt: draft.negativePrompt,
+          seed: draft.seed,
+          soundEnabled: draft.soundEnabled,
+        ),
+    ];
+    final copiedPlans = <MusicVideoPlan>[
+      for (final plan in sourcePlans)
+        MusicVideoPlan(
+          projectId: copiedId,
+          storyBrief: plan.storyBrief,
+          visualStyle: plan.visualStyle,
+          avatarName: avatarName(plan.avatarName),
+          shots: List.unmodifiable([
+            for (final shot in plan.shots)
+              StoryboardShot(
+                shot.title,
+                shot.description,
+                shot.estimatedSeconds,
+              ),
+          ]),
+          createdAt: plan.createdAt,
+        ),
+    ];
+    if (target.avatars.length + addedAvatars.length > 100) {
+      throw StateError(
+          'This account workspace has reached its Actor profile limit.');
+    }
+
+    target.projects.add(copiedProject);
+    target.drafts.addAll(copiedDrafts);
+    target.musicPlans.addAll(copiedPlans);
+    target.avatars.addAll(addedAvatars);
+    try {
+      final snapshotBytes =
+          utf8.encode(jsonEncode(exportLocalSnapshot())).length;
+      if (snapshotBytes > hotIceLocalArchiveMaxJsonBytes) {
+        throw StateError(
+          'This copy would exceed the 2 MiB encrypted local archive limit. '
+          'The original project has not changed.',
+        );
+      }
+    } catch (_) {
+      target.projects.remove(copiedProject);
+      target.drafts.removeWhere(copiedDrafts.contains);
+      target.musicPlans.removeWhere(copiedPlans.contains);
+      target.avatars.removeWhere(addedAvatars.contains);
+      rethrow;
+    }
+    notifyListeners();
+    return LocalProjectTransferResult(
+      project: copiedProject,
+      draftCount: copiedDrafts.length,
+      storyboardCount: copiedPlans.length,
+      avatarCount: addedAvatars.length,
+    );
   }
 
   String addProject(String title) {
@@ -918,19 +1138,21 @@ class HotIceStore extends ChangeNotifier {
     if (sources.length > 30)
       throw const FormatException('Too many local workspaces.');
     for (final entry in sources.entries) {
-      if (entry.key is! String || entry.value is! Map<String, dynamic>) continue;
+      if (entry.key is! String || entry.value is! Map<String, dynamic>)
+        continue;
       final storedKey = entry.key as String;
       final email = schema == 1
           ? storedKey.toLowerCase()
           : storedKey.startsWith('demo:')
               ? storedKey.substring('demo:'.length).toLowerCase()
               : null;
-      final accountId = schema == 2
-          ? _accountIdFromWorkspaceId(storedKey)
-          : null;
+      final accountId =
+          schema == 2 ? _accountIdFromWorkspaceId(storedKey) : null;
       if (email == null && accountId == null) continue;
       if (email != null && !isValidDemoEmail(email)) continue;
-      if (schema == 2 && storedKey.startsWith('account:') && accountId == null) {
+      if (schema == 2 &&
+          storedKey.startsWith('account:') &&
+          accountId == null) {
         continue;
       }
       final workspaceId = accountId == null

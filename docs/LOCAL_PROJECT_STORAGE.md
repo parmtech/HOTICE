@@ -19,6 +19,18 @@ demo profiles and does not silently claim or merge them into a server account.
 Their projects remain available by switching to the matching local profile.
 There is no automatic project upload or account transfer during migration.
 
+While signed into an authenticated account, the Accounts page can explicitly
+copy one eligible UUID project from a saved local profile into the current
+account's encrypted device workspace. The confirmation names the source and
+explains what is copied: prompts and generation settings, storyboard text,
+Actor names/identity notes, and reference-file metadata. Media bytes and pending
+generation attempts are excluded. The copy gets a new UUID; matching Actor
+profiles are reused only when their style and identity notes also match, while
+name collisions create a clearly suffixed local profile. The source and its
+cloud revision state remain unchanged. This action makes no network request;
+cloud save remains a separate explicit action. A copy that exceeds the archive
+limit is rolled back in full.
+
 The snapshot contains project titles and dates, actor names and identity notes,
 scene prompts and settings, reference-file metadata, storyboard text, and local
 appearance settings. It does not contain API credentials, server session
@@ -48,5 +60,7 @@ flutter test test/local_store_test.dart
 The tests cover encrypted restart restore, stable account-ID rebinding after an
 email change, encrypted schema 1 migration, demo/account isolation, all
 persisted scene draft settings, recovery from a damaged primary file, and
-fail-closed behavior when the device key is wrong. Physical-device keystore
-backup and restore acceptance remains a release gate.
+fail-closed behavior when the device key is wrong. Profile-copy tests cover
+identity remapping, source preservation, excluded cloud retry state, consent,
+and zero API traffic. Physical-device keystore backup and restore acceptance
+remains a release gate.
