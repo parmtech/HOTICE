@@ -18,22 +18,34 @@ try {
     if ($webroot !== '') $roots[] = $webroot;
     \Hotice\Support::assertPrivateStorage($storage, $roots);
     $limit = isset($argv[1]) && ctype_digit($argv[1]) ? max(1, min(100, (int)$argv[1])) : 20;
-    $q = $db->prepare("SELECT id,storage_name FROM cloud_files WHERE scan_status='pending' ORDER BY created_at,id LIMIT ?");
+    // Only scan due uploads; an unavailable scanner/file is retried later,
+    // so one broken upload cannot monopolize every small cron batch.
+    $q = $db->prepare("SELECT id,storage_name FROM cloud_files WHERE scan_status='pending' AND next_scan_at<=UTC_TIMESTAMP() ORDER BY next_scan_at,created_at,id LIMIT ?");
     $q->bindValue(1, $limit, PDO::PARAM_INT);
     $q->execute();
+    $defer = $db->prepare("UPDATE cloud_files SET next_scan_at=DATE_ADD(UTC_TIMESTAMP(), INTERVAL 5 MINUTE) WHERE id=? AND storage_name=? AND scan_status='pending'");
     $clean = $blocked = $retryable = 0;
     foreach ($q->fetchAll() as $file) {
         $name = (string)$file['storage_name'];
-        if (!\Hotice\Support::secureFileName($name)) { $retryable++; continue; }
+        if (!\Hotice\Support::secureFileName($name)) {
+            $defer->execute([$file['id'], $name]);
+            $retryable++; continue;
+        }
         $path = $storage . '/' . $name;
-        if (!is_file($path) || !is_readable($path)) { $retryable++; continue; }
+        if (is_link($path) || !is_file($path) || !is_readable($path)) {
+            $defer->execute([$file['id'], $name]);
+            $retryable++; continue;
+        }
         $pipes = [];
         $process = proc_open([$scanner, '--no-summary', '--', $path], [
             0 => ['file', '/dev/null', 'r'],
             1 => ['file', '/dev/null', 'a'],
             2 => ['file', '/dev/null', 'a'],
         ], $pipes);
-        if (!is_resource($process)) { $retryable++; continue; }
+        if (!is_resource($process)) {
+            $defer->execute([$file['id'], $name]);
+            $retryable++; continue;
+        }
         $started = microtime(true);
         do {
             $state = proc_get_status($process);
@@ -46,7 +58,10 @@ try {
             usleep(200000);
         } while (true);
         proc_close($process);
-        if ($code !== 0 && $code !== 1) { $retryable++; continue; }
+        if ($code !== 0 && $code !== 1) {
+            $defer->execute([$file['id'], $name]);
+            $retryable++; continue;
+        }
         $status = $code === 0 ? 'clean' : 'blocked';
         $update = $db->prepare("UPDATE cloud_files SET scan_status=? WHERE id=? AND storage_name=? AND scan_status='pending'");
         $update->execute([$status, $file['id'], $name]);
