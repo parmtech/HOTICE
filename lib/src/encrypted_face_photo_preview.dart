@@ -4,6 +4,17 @@ import 'package:flutter/material.dart';
 
 import 'face_reference_vault.dart';
 
+/// Returns a bounded decode width for a small on-screen encrypted-photo preview.
+/// Keep the source aspect ratio by constraining one dimension only.
+int facePhotoPreviewCacheWidth({
+  required double width,
+  required double height,
+  required double devicePixelRatio,
+}) {
+  final longestEdge = width > height ? width : height;
+  return (longestEdge * devicePixelRatio).round().clamp(1, 2048).toInt();
+}
+
 /// Shows an app-private encrypted face photo only after local vault decryption.
 class EncryptedFacePhotoPreview extends StatefulWidget {
   const EncryptedFacePhotoPreview({
@@ -75,10 +86,16 @@ class _EncryptedFacePhotoPreviewState extends State<EncryptedFacePhotoPreview> {
             if (!snapshot.hasData) {
               return _placeholder(Icons.hourglass_top_rounded);
             }
+            final cacheWidth = facePhotoPreviewCacheWidth(
+              width: widget.width,
+              height: widget.height,
+              devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+            );
             return Image.memory(
               snapshot.data!,
               width: widget.width,
               height: widget.height,
+              cacheWidth: cacheWidth,
               fit: widget.fit,
               semanticLabel: widget.semanticLabel,
               errorBuilder: (_, __, ___) => _placeholder(
