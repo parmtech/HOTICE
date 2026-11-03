@@ -17,6 +17,7 @@ const token = 'a'.repeat(64);
 const cloudProjects = new Map();
 const mockJobs = new Map();
 const mockJobRequests = [];
+const mockJobListReads = new Map();
 const mockQuoteRequests = [];
 const projectRequests = [];
 const apiEvents = [];
@@ -91,7 +92,15 @@ const api = http.createServer((req, res) => {
       mockJobs.set(job.id, job);
       return json(res, 201, {job, idempotentReplay: false});
     }
-    if (url.pathname === '/v1/jobs' && req.method === 'GET') return json(res, 200, {jobs: [...mockJobs.values()]});
+    if (url.pathname === '/v1/jobs' && req.method === 'GET') {
+      const jobs = [...mockJobs.values()];
+      for (const job of jobs) {
+        const reads = (mockJobListReads.get(job.id) || 0) + 1;
+        mockJobListReads.set(job.id, reads);
+        job.status = reads === 1 ? 'processing' : 'succeeded';
+      }
+      return json(res, 200, {jobs});
+    }
 
     if (url.pathname === '/v1/projects' && req.method === 'GET') {
       projectRequests.push({method: req.method, path: url.pathname, authorized: true});
@@ -265,9 +274,26 @@ async function main() {
     assert.match(mockJobRequests[0].idempotencyKey, /^web-[0-9a-f-]{36}$/i);
     assert.equal(mockJobRequests[0].body.request.modelId, 'hotice.mock.video.v1');
     assert.equal(mockJobRequests[0].body.request.prompt, mockQuoteRequests[0].request.prompt);
-    await page.locator('#refreshMockJobs').click();
-    await page.getByText('Job list refreshed. Results are mock metadata only; no video was created.').waitFor();
-    assert.match(await page.locator('#mockJobs').innerText(), /Mock job · queued/);
+    await page.getByText('Mock job · processing').waitFor();
+    assert.equal(mockJobListReads.get('00000000-0000-4000-8000-000000000123'), 1,
+      'active mock jobs are refreshed automatically after submission');
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', {configurable: true, value: true});
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await page.waitForTimeout(5500);
+    assert.equal(mockJobListReads.get('00000000-0000-4000-8000-000000000123'), 1,
+      'automatic status polling pauses while the page is hidden');
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', {configurable: true, value: false});
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await page.getByText('Mock job · succeeded').waitFor();
+    const terminalJobReads = mockJobListReads.get('00000000-0000-4000-8000-000000000123');
+    assert.equal(terminalJobReads, 2, 'a foregrounded page immediately refreshes and stops on terminal status');
+    await page.waitForTimeout(5500);
+    assert.equal(mockJobListReads.get('00000000-0000-4000-8000-000000000123'), terminalJobReads,
+      'terminal jobs do not cause ongoing polling');
     assert.equal(await page.locator('#loadCloudProjects').isDisabled(), true, 'cloud list stays disabled without consent');
     assert.equal(projectRequests.length, 0, 'sign-in alone does not load cloud project data');
     await page.locator('#cloudSyncConsent').check();
@@ -320,6 +346,7 @@ async function main() {
       await secondPage.locator('#accountPassword').fill('synthetic-only-password');
       await secondPage.locator('#accountSignIn').click();
       await secondPage.getByText('Signed in and verified with the HOTICE server.').waitFor();
+      await secondPage.getByText('Mock job · succeeded').waitFor();
       await secondPage.locator('#cloudSyncConsent').check();
       await secondPage.locator('#loadCloudProjects').click();
       await secondPage.getByRole('button', {name: 'Save cloud copy on this device'}).first().click();
@@ -336,7 +363,7 @@ async function main() {
       scenarios: [
         'local project save, reload and reopen',
         'media data rejected before upload',
-        'authenticated mock generation quote, explicit submit, idempotency and status refresh',
+        'authenticated mock generation quote, explicit submit, idempotency, foreground polling pause/resume and terminal stop',
         'cloud controls disabled until login and consent',
         'entitled account loads cloud list',
         'first cloud upload is authenticated',

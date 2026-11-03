@@ -60,7 +60,7 @@
 <div id="actorAssignments" class="actor-assignments" aria-live="polite"></div>
 <div class="composer-bottom"><button type="button" id="saveSceneDraft" class="button tiny">Save scene idea</button><span id="sceneStatus" role="status" class="editor-note">Local preview only</span></div>
 <section class="mock-generation" aria-labelledby="mockGenerationHeading">
-<div><span class="eyebrow">SERVER QUEUE · DRY RUN ONLY</span><h4 id="mockGenerationHeading">Try the authenticated mock workflow</h4><p>This submits only the scene prompt to HOTICE’s mock queue. It does not create video, upload media or call a paid AI provider. Actor names, reference media and model-preview settings are not sent.</p></div>
+<div><span class="eyebrow">SERVER QUEUE · DRY RUN ONLY</span><h4 id="mockGenerationHeading">Try the authenticated mock workflow</h4><p>This submits only the scene prompt to HOTICE’s mock queue. It does not create video, upload media or call a paid AI provider. Actor names, reference media and model-preview settings are not sent. Active jobs refresh automatically every five seconds while this page is visible; refresh manually at any time.</p></div>
 <div class="mock-generation-actions"><button type="button" class="tool" id="quoteMockJob" disabled>Check simulated credit quote</button><button type="button" class="button tiny" id="submitMockJob" disabled>Start mock dry run</button><button type="button" class="tool" id="refreshMockJobs" disabled>Refresh my jobs</button></div>
 <p id="mockGenerationStatus" class="editor-note" role="status" aria-live="polite">Sign in and use an API server with mock generation enabled. No request is sent until you choose an action.</p>
 <div id="mockJobs" class="mock-jobs" aria-live="polite"></div>
