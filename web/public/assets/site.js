@@ -412,7 +412,8 @@
       box.setAttribute('role', 'listitem');
       box.append(make('strong', '', clip.name));
       box.append(make('small', '', clip.url
-        ? (clip.end - clip.start).toFixed(1) + ' seconds' : 'Scene placeholder'));
+        ? (clip.end - clip.start).toFixed(1) + ' seconds'
+        : clip.missingMedia ? 'Video missing · re-import to relink' : 'Scene placeholder'));
       const controls = make('div', 'clip-controls');
       const open = make('button', '', activeClip === index ? 'Selected' : 'Select');
       open.dataset.clipAction = 'select';
@@ -457,6 +458,44 @@
     clips.splice(to, 0, clip);
     activeClip = to;
     renderClips();
+  }
+  function savedTimeline() {
+    return clips.map((clip, order) => ({
+      order, name: String(clip.name || 'Untitled clip').slice(0, 180),
+      kind: clip.url ? 'video' : 'placeholder',
+      start: Number.isFinite(clip.start) ? clip.start : 0,
+      end: Number.isFinite(clip.end) ? clip.end : 0,
+      duration: Number.isFinite(clip.duration) ? clip.duration : 0,
+      speed: Number.isFinite(clip.speed) ? clip.speed : 1,
+    }));
+  }
+  function restoreTimeline(value) {
+    for (const clip of clips) if (clip.url) URL.revokeObjectURL(clip.url);
+    clips = [];
+    activeClip = -1;
+    sequence = false;
+    resetVideo();
+    const entries = Array.isArray(value) ? value.slice(0, 100) : [];
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue;
+      const name = typeof entry.name === 'string' ? entry.name.slice(0, 180) : 'Recovered clip';
+      const start = Number.isFinite(entry.start) && entry.start >= 0 ? entry.start : 0;
+      const duration = Number.isFinite(entry.duration) && entry.duration >= 0 ? entry.duration : 0;
+      const rawEnd = Number.isFinite(entry.end) && entry.end > start ? entry.end : duration;
+      const end = duration > 0 ? Math.min(rawEnd, duration) : rawEnd;
+      const speed = [0.5, 1, 1.5, 2].includes(entry.speed) ? entry.speed : 1;
+      clips.push({id:++serial, name, url:null, start, end, duration, speed,
+        missingMedia: entry.kind === 'video'});
+    }
+    inspector.hidden = true;
+    inspectorEmpty.hidden = false;
+    inspectorEmpty.textContent = clips.some((clip) => clip.missingMedia)
+      ? 'Saved edit choices restored. Re-import the original video files to preview or export.'
+      : 'Select a clip in the timeline';
+    renderClips();
+    report(clips.some((clip) => clip.missingMedia)
+      ? 'Timeline edit choices restored. Video files were not stored; re-import originals to reconnect them.'
+      : 'Timeline restored on this device.');
   }
   const report = (message) => status('editorStatus', message);
   function waitForClipMetadata(clip) {
@@ -1262,6 +1301,7 @@
       const document = safeProjectDocument(project.document);
       sceneDrafts = editorScenes(document);
       actorNames = editorActors(document);
+      restoreTimeline(document.timeline);
       saveActorNames();
       renderActors();
       renderActorAssignments();
@@ -1281,7 +1321,8 @@
     try {
       const existing = selectedProjectId ? await projectStore('readonly', 'get', selectedProjectId) : null;
       const document = safeProjectDocument({
-        ...(existing?.document || {}), version: 1, scenes: sceneDrafts, actors: actorNames,
+        ...(existing?.document || {}), version: 2, scenes: sceneDrafts, actors: actorNames,
+        timeline: savedTimeline(),
       });
       if (!document.scenes.length) return projectStatus('Save at least one scene idea before saving this project.');
       const project = {

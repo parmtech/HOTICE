@@ -315,6 +315,38 @@ async function main() {
     assert.match(await page.locator('#scenePrompt').inputValue(), /red paper kite/);
     assert.equal(await page.locator('#sceneModel').inputValue(), 'storyboard_demo');
     assert.match(await page.locator('#actorList').innerText(), /Avery/);
+    assert.equal(await page.locator('#clipTimeline [role="listitem"]').count(), 2,
+      'Opening a local project must restore its timeline edit manifest.');
+    assert.match(await page.locator('#clipTimeline').innerText(), /Video missing · re-import to relink/);
+    assert.match(await page.locator('#clipTimeline').innerText(), /hotice-synthetic-first\.webm/);
+    assert.equal(await page.locator('#exportVideo').isDisabled(), true,
+      'Restored metadata alone must not imply that source media is available.');
+    const restoredTimeline = await page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open('hotice.browser-projects.v1', 1);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const project = await new Promise((resolve, reject) => {
+        const request = db.transaction('projects').objectStore('projects').getAll();
+        request.onsuccess = () => resolve(request.result[0]);
+        request.onerror = () => reject(request.error);
+      });
+      db.close();
+      const firstClip = project.document.timeline[0];
+      return {
+        mediaExcluded: project.document.timeline.every((clip) => !('url' in clip) && !('bytes' in clip)),
+        firstClip: {order: firstClip.order, name: firstClip.name, kind: firstClip.kind,
+          start: firstClip.start, end: firstClip.end, speed: firstClip.speed,
+          validDuration: Number.isFinite(firstClip.duration) && firstClip.duration >= firstClip.end},
+      };
+    });
+    assert.equal(restoredTimeline.mediaExcluded, true,
+      'The timeline must not persist browser media URLs or bytes.');
+    assert.deepEqual(restoredTimeline.firstClip,
+      {order: 0, name: 'hotice-synthetic-first.webm', kind: 'video',
+        start: 0.2, end: 1.8, speed: 1.5, validDuration: true},
+      'The timeline must preserve its ordering, trim, speed and readable duration.');
 
     // Seed a local-only media field and prove it is rejected before network transfer.
     await updateLocalDocument(page, 'add-media');
