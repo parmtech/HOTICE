@@ -117,7 +117,6 @@ Future<bool> deletePickerCacheCopyIfOwned({
   }
   final parent = selectedFile.parent;
   final rootPath = _normalizedAbsolutePath(temporaryRoot.path);
-  final parentPath = _normalizedAbsolutePath(parent.path);
   final parentName = _basename(parent.path);
   final parentParent = parent.parent;
   final parentParentName = _basename(parentParent.path);
