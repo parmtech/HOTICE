@@ -22,6 +22,7 @@ const cloudProjects = new Map();
 const mockJobsByToken = new Map();
 const mockJobRequests = [];
 const mockJobListReads = new Map();
+const mockJobListReadsByToken = new Map();
 let mockJobListRequestCount = 0;
 const mockQuoteRequests = [];
 const projectRequests = [];
@@ -34,6 +35,9 @@ const delayedQuoteSeen = new Promise((resolve) => { resolveDelayedQuoteSeen = re
 let delayedJobResponse = null;
 let resolveDelayedJobSeen;
 const delayedJobSeen = new Promise((resolve) => { resolveDelayedJobSeen = resolve; });
+let delayedJobListResponse = null;
+let resolveDelayedJobListSeen;
+const delayedJobListSeen = new Promise((resolve) => { resolveDelayedJobListSeen = resolve; });
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -125,7 +129,14 @@ const api = http.createServer((req, res) => {
     }
     if (url.pathname === '/v1/jobs' && req.method === 'GET') {
       mockJobListRequestCount += 1;
+      mockJobListReadsByToken.set(authorizedToken, (mockJobListReadsByToken.get(authorizedToken) || 0) + 1);
       const jobs = [...(mockJobsByToken.get(authorizedToken)?.values() || [])];
+      const delayedActiveJob = jobs.find((job) => job.id === '00000000-0000-4000-8000-000000000999');
+      if (authorizedToken === accountTokens.get('browser-test@example.test') && delayedActiveJob) {
+        delayedJobListResponse = () => json(res, 200, {jobs});
+        resolveDelayedJobListSeen();
+        return;
+      }
       for (const job of jobs) {
         if (job.errorCode === 'provider_outcome_unknown') continue;
         const reads = (mockJobListReads.get(job.id) || 0) + 1;
@@ -446,6 +457,30 @@ async function main() {
         'a late job response from a signed-out account cannot appear in the next account job list');
       assert.doesNotMatch(await racePage.locator('#mockGenerationStatus').textContent(), /Mock job queued/,
         'a late job response cannot overwrite the next account status');
+
+      const accountAToken = accountTokens.get('browser-test@example.test');
+      mockJobsByToken.get(accountAToken).set('00000000-0000-4000-8000-000000000999', {
+        id: '00000000-0000-4000-8000-000000000999', modelId: 'hotice.mock.video.v1',
+        status: 'processing', reservedCredits: 2, result: null,
+      });
+      const accountBToken = accountTokens.get('second-user@example.test');
+      const accountBReadsBefore = mockJobListReadsByToken.get(accountBToken) || 0;
+      await racePage.locator('#refreshMockJobs').click();
+      await delayedJobListSeen;
+      await racePage.locator('#accountSignOut').click();
+      await racePage.locator('#accountEmail').fill('second-user@example.test');
+      await racePage.locator('#accountPassword').fill('synthetic-only-password');
+      await racePage.locator('#accountSignIn').click();
+      await racePage.getByText('ID 00000000-0000-4000-8000-000000000789 · simulated credits reserved: 3').waitFor();
+      assert.equal(mockJobListReadsByToken.get(accountBToken), accountBReadsBefore + 1,
+        'an in-flight job refresh for the prior account does not suppress the next account refresh');
+      delayedJobListResponse();
+      delayedJobListResponse = null;
+      await racePage.waitForTimeout(200);
+      assert.doesNotMatch(await racePage.locator('#mockJobs').textContent(), /00000000-0000-4000-8000-000000000999/,
+        'a late job-list response cannot add the prior account jobs to the new account list');
+      assert.match(await racePage.locator('#mockJobs').textContent(), /00000000-0000-4000-8000-000000000789/,
+        'the new account job list remains visible after the prior account refresh finishes');
     } finally {
       await raceContext.close();
     }
@@ -456,7 +491,7 @@ async function main() {
         'local project save, reload and reopen',
         'media data rejected before upload',
         'authenticated mock generation quote, explicit submit, idempotency, foreground polling pause/resume, terminal stop and unknown-outcome reconciliation hold',
-        'late quote and job responses cannot update a different signed-in account',
+        'late quote, job and job-list responses cannot update or suppress another account view',
         'cloud controls disabled until login and consent',
         'entitled account loads cloud list',
         'first cloud upload is authenticated',

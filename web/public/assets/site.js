@@ -514,7 +514,7 @@
   let mockGenerationEnabled = false;
   let currentMockQuote = null;
   let mockJobsRefreshTimer = null;
-  let mockJobsRefreshInFlight = false;
+  let mockJobsRefreshInFlightToken = null;
   let mockJobsNeedPolling = false;
   let mockJobsRefreshFailures = 0;
   let mockQuoteGeneration = 0;
@@ -640,11 +640,11 @@
 
   async function refreshMockJobs({automatic = false, silent = false} = {}) {
     if (!accountToken || !mockGenerationEnabled) return;
-    if (mockJobsRefreshInFlight) return;
+    const requestToken = accountToken;
+    if (mockJobsRefreshInFlightToken === requestToken) return;
     if (mockJobsRefreshTimer !== null) clearTimeout(mockJobsRefreshTimer);
     mockJobsRefreshTimer = null;
-    const requestToken = accountToken;
-    mockJobsRefreshInFlight = true;
+    mockJobsRefreshInFlightToken = requestToken;
     if (!automatic && !silent) mockJobStatus('Loading your mock job status…');
     try {
       const response = await accountApi('/v1/jobs', {token: requestToken});
@@ -671,8 +671,10 @@
       }
       scheduleMockJobsRefresh(delay);
     } finally {
-      mockJobsRefreshInFlight = false;
-      if (mockJobsNeedPolling && mockJobsRefreshTimer === null) scheduleMockJobsRefresh();
+      if (mockJobsRefreshInFlightToken === requestToken) {
+        mockJobsRefreshInFlightToken = null;
+        if (mockJobsNeedPolling && mockJobsRefreshTimer === null) scheduleMockJobsRefresh();
+      }
     }
   }
 
