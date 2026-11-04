@@ -64,7 +64,21 @@ check($mockProvider->submit($providerRequest, str_repeat('a', 64))->operationId 
 check($mockProvider->poll($providerOperation->operationId)->status === 'processing', 'provider polling normalizes processing state');
 $providerOperation = $mockProvider->poll($providerOperation->operationId);
 check($providerOperation->status === 'succeeded', 'mock provider reaches normalized success');
-check(($providerOperation->result['mode'] ?? null) === 'mock_dry_run' && !isset($providerOperation->result['prompt']), 'mock provider returns no prompt or generated media');
+check(($providerOperation->result['mode'] ?? null) === 'mock_dry_run' && ($providerOperation->result['outcome'] ?? null) === 'dry_run_no_media' && ($providerOperation->result['assets'] ?? null) === [], 'mock provider returns no prompt or generated media');
+$providerOutput = new Hotice\ProviderOperation(Support::uuid(), 'succeeded', [
+    'mode' => 'provider_output', 'modelId' => 'fixture.video.v1', 'outcome' => 'media_ready',
+    'assets' => [['mediaId' => Support::uuid(), 'mime' => 'video/mp4', 'byteSize' => 1024, 'sha256' => str_repeat('c', 64)]],
+]);
+check($providerOutput->status === 'succeeded' && count($providerOutput->result['assets']) === 1, 'normalized provider result accepts private HOTICE media metadata');
+foreach ([
+    ['mode' => 'provider_output', 'modelId' => 'fixture.video.v1', 'outcome' => 'media_ready', 'assets' => [], 'rawResponse' => 'secret'],
+    ['mode' => 'provider_output', 'modelId' => 'fixture.video.v1', 'outcome' => 'media_ready', 'assets' => [['mediaId' => Support::uuid(), 'mime' => 'video/mp4', 'byteSize' => 10, 'sha256' => str_repeat('d', 64), 'url' => 'https://provider.invalid/output']]],
+] as $unsafeResult) {
+    try { new Hotice\ProviderOperation(Support::uuid(), 'succeeded', $unsafeResult); check(false, 'raw provider response and URLs rejected from normalized result'); }
+    catch (InvalidArgumentException) { check(true, 'raw provider response and URLs rejected from normalized result'); }
+}
+try { new Hotice\ProviderOperation(Support::uuid(), 'processing', ['rawResponse' => 'secret']); check(false, 'nonterminal operations cannot return result payloads'); }
+catch (InvalidArgumentException) { check(true, 'nonterminal operations cannot return result payloads'); }
 try { $mockProvider->submit($providerRequest, str_repeat('b', 64)); $changedRequest = new Hotice\ProviderRequest(Hotice\MockProviderAdapter::MODEL_ID, 'different prompt', [], ['simulate' => 'success', 'attempt' => 1]); $mockProvider->submit($changedRequest, str_repeat('a', 64)); check(false, 'provider idempotency key request binding'); } catch (ApiError $e) { check($e->status === 409, 'provider idempotency key request binding'); }
 $retryable = $mockProvider->submit(new Hotice\ProviderRequest(Hotice\MockProviderAdapter::MODEL_ID, '', [], ['simulate' => 'rate_limit_once', 'attempt' => 1]), str_repeat('c', 64));
 $mockProvider->poll($retryable->operationId);

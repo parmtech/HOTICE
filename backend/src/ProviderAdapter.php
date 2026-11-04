@@ -126,6 +126,10 @@ final readonly class ProviderRequest
 final readonly class ProviderOperation
 {
     public const STATES = ['queued', 'processing', 'succeeded', 'failed', 'cancelled'];
+    private const RESULT_MIME_TYPES = [
+        'image/jpeg', 'image/png', 'image/webp', 'audio/mpeg', 'audio/x-wav', 'audio/wav',
+        'audio/mp4', 'audio/ogg', 'video/mp4', 'video/webm',
+    ];
 
     public function __construct(
         public string $operationId,
@@ -142,6 +146,45 @@ final readonly class ProviderOperation
         if ($status !== 'failed' && ($errorCode !== null || $retryable)) {
             throw new \InvalidArgumentException('Only failed operations may carry retry information.');
         }
+        self::validateResult($status, $result);
+    }
+
+    private static function validateResult(string $status, array $result): void
+    {
+        if ($status !== 'succeeded') {
+            if ($result !== []) throw new \InvalidArgumentException('Only successful operations may carry a result.');
+            return;
+        }
+        if (array_diff(array_keys($result), ['mode', 'modelId', 'outcome', 'assets']) !== [] || count($result) !== 4 ||
+            !is_string($result['mode'] ?? null) || !in_array($result['mode'], ['mock_dry_run', 'provider_output'], true) ||
+            !is_string($result['modelId'] ?? null) || !preg_match('/^[a-z0-9][a-z0-9._:-]{2,127}$/i', $result['modelId']) ||
+            !is_string($result['outcome'] ?? null) ||
+            !in_array($result['outcome'], ['dry_run_no_media', 'media_ready'], true) ||
+            !is_array($result['assets'] ?? null) || !array_is_list($result['assets']) || count($result['assets']) > 20) {
+            throw new \InvalidArgumentException('Invalid normalized provider result.');
+        }
+        if (($result['mode'] === 'mock_dry_run' && ($result['outcome'] !== 'dry_run_no_media' || $result['assets'] !== [])) ||
+            ($result['mode'] === 'provider_output' && ($result['outcome'] !== 'media_ready' || $result['assets'] === []))) {
+            throw new \InvalidArgumentException('Provider result mode and media state do not agree.');
+        }
+        $seen = [];
+        foreach ($result['assets'] as $asset) {
+            if (!is_array($asset) || array_diff(array_keys($asset), ['mediaId', 'mime', 'byteSize', 'sha256']) !== [] || count($asset) !== 4 ||
+                !is_string($asset['mediaId'] ?? null) || !Support::isUuid($asset['mediaId']) ||
+                !is_string($asset['mime'] ?? null) || !in_array($asset['mime'], self::RESULT_MIME_TYPES, true) ||
+                !is_int($asset['byteSize'] ?? null) || $asset['byteSize'] < 1 || $asset['byteSize'] > 20 * 1024 * 1024 * 1024 ||
+                !is_string($asset['sha256'] ?? null) || !preg_match('/^[a-f0-9]{64}$/i', $asset['sha256'])) {
+                throw new \InvalidArgumentException('Provider assets must reference validated private HOTICE media.');
+            }
+            if (isset($seen[$asset['mediaId']])) throw new \InvalidArgumentException('Provider result contains duplicate media IDs.');
+            $seen[$asset['mediaId']] = true;
+        }
+        try {
+            $encoded = json_encode($result, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            throw new \InvalidArgumentException('Provider result is not valid JSON metadata.');
+        }
+        if (strlen($encoded) > 16384) throw new \InvalidArgumentException('Provider result metadata is too large.');
     }
 }
 

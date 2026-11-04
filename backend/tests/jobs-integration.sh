@@ -43,7 +43,8 @@ php backend/bin/jobs-worker.php --once | jq -e '.status == "succeeded"' >/dev/nu
 job_state=$(curl -fsS -H "$AUTH" "$BASE/v1/jobs/$job")
 test "$(echo "$job_state" | jq -er '.job.status')" = 'succeeded'
 test "$(echo "$job_state" | jq -er '.job.chargedCredits')" = '5'
-[[ "$(echo "$job_state" | jq -er '.job.result.message')" == *'No video or provider output'* ]]
+[[ "$(echo "$job_state" | jq -er '.job.result.outcome')" == 'dry_run_no_media' ]]
+test "$(echo "$job_state" | jq -er '.job.result.assets | length')" = '0'
 test "$(echo "$job_state" | jq -r '.job.result | has("requestSha256")')" = 'false'
 php -r 'require "backend/src/App.php"; $c=require "backend/config.php"; $db=(new Hotice\App($c))->database(); $q=$db->prepare("SELECT provider_id,model_id,status,request_sha256,remote_operation_id FROM provider_attempts WHERE job_id=? ORDER BY attempt_number"); $q->execute([$argv[1]]); $rows=$q->fetchAll(); if (count($rows)!==1 || $rows[0]["provider_id"]!=="mock" || $rows[0]["model_id"]!=="hotice.mock.video.v1" || $rows[0]["status"]!=="succeeded" || !preg_match("/^[a-f0-9]{64}$/",$rows[0]["request_sha256"]) || !Hotice\Support::isUuid($rows[0]["remote_operation_id"])) exit(1);' "$job"
 test "$(curl -sS -o /dev/null -w '%{http_code}' -H "$OTHER_AUTH" "$BASE/v1/jobs/$job")" = '404'

@@ -95,7 +95,8 @@ final class MockProviderAdapter implements ProviderAdapter
         $state['result'] = [
             'mode' => 'mock_dry_run',
             'modelId' => self::MODEL_ID,
-            'message' => 'Dry run completed. No video or provider output was created.',
+            'outcome' => 'dry_run_no_media',
+            'assets' => [],
         ];
         return $this->operation($operationId);
     }
