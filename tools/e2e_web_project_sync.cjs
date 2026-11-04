@@ -13,15 +13,31 @@ try {
 }
 
 const publicRoot = path.resolve(__dirname, '..', 'web', 'public');
-const token = 'a'.repeat(64);
+const accountTokens = new Map([
+  ['browser-test@example.test', 'a'.repeat(64)],
+  ['second-user@example.test', 'b'.repeat(64)],
+]);
+const emailsByToken = new Map([...accountTokens].map(([email, value]) => [value, email]));
 const cloudProjects = new Map();
-const mockJobs = new Map();
+const mockJobsByToken = new Map();
 const mockJobRequests = [];
+const mockJobListReads = new Map();
+const mockJobListReadsByToken = new Map();
+let mockJobListRequestCount = 0;
 const mockQuoteRequests = [];
 const projectRequests = [];
 const apiEvents = [];
 let pageOrigin;
 let conflictProjectId = null;
+let delayedQuoteResponse = null;
+let resolveDelayedQuoteSeen;
+const delayedQuoteSeen = new Promise((resolve) => { resolveDelayedQuoteSeen = resolve; });
+let delayedJobResponse = null;
+let resolveDelayedJobSeen;
+const delayedJobSeen = new Promise((resolve) => { resolveDelayedJobSeen = resolve; });
+let delayedJobListResponse = null;
+let resolveDelayedJobListSeen;
+const delayedJobListSeen = new Promise((resolve) => { resolveDelayedJobListSeen = resolve; });
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -65,15 +81,23 @@ const api = http.createServer((req, res) => {
     try { body = raw ? JSON.parse(raw) : null; } catch (_) { return json(res, 400, {error: 'Invalid JSON'}); }
 
     if (url.pathname === '/v1/auth/login' && req.method === 'POST') {
-      return json(res, 200, {accessToken: token, tokenType: 'Bearer'});
+      const issuedToken = accountTokens.get(body?.email?.toLowerCase());
+      return issuedToken
+        ? json(res, 200, {accessToken: issuedToken, tokenType: 'Bearer'})
+        : json(res, 401, {error: 'Invalid credentials.'});
     }
-    if (req.headers.authorization !== 'Bearer ' + token) {
+    const authorizedToken = emailsByToken.has((req.headers.authorization || '').replace(/^Bearer /, ''))
+      ? req.headers.authorization.slice('Bearer '.length)
+      : null;
+    if (!authorizedToken) {
       return json(res, 401, {error: 'Authentication required.'});
     }
     if (url.pathname === '/v1/auth/logout' && req.method === 'POST') return json(res, 200, {ok: true});
     if (url.pathname === '/v1/me' && req.method === 'GET') {
+      const email = emailsByToken.get(authorizedToken);
       return json(res, 200, {
-        user: {id: '00000000-0000-4000-8000-000000000001', email: 'browser-test@example.test'},
+        user: {id: authorizedToken === accountTokens.get('browser-test@example.test')
+          ? '00000000-0000-4000-8000-000000000001' : '00000000-0000-4000-8000-000000000002', email},
         cloud: {active: true, readable: true, quotaBytes: 10485760, usedBytes: 0},
         mockGeneration: {enabled: true, credits: 10, unit: 'simulated_credits', moneyValue: 0},
       });
@@ -81,17 +105,46 @@ const api = http.createServer((req, res) => {
 
     if (url.pathname === '/v1/jobs/quote' && req.method === 'POST') {
       mockQuoteRequests.push(body);
+      if (body?.request?.prompt === 'Delayed account A quote') {
+        delayedQuoteResponse = () => json(res, 200, {quoteToken: 'account-a-delayed-quote', modelId: 'hotice.mock.video.v1', credits: 7, expiresAt: '2026-10-29T00:00:00Z'});
+        resolveDelayedQuoteSeen();
+        return;
+      }
       return json(res, 200, {quoteToken: 'synthetic-quote', modelId: 'hotice.mock.video.v1', credits: 3, expiresAt: '2026-10-29T00:00:00Z'});
     }
     if (url.pathname === '/v1/jobs' && req.method === 'POST') {
       const idempotencyKey = req.headers['idempotency-key'];
-      mockJobRequests.push({body, idempotencyKey});
+      mockJobRequests.push({body, idempotencyKey, token: authorizedToken});
       if (!idempotencyKey || !/^[A-Za-z0-9._~:-]{16,128}$/.test(idempotencyKey)) return json(res, 400, {error: 'Missing idempotency key'});
-      const job = {id: '00000000-0000-4000-8000-000000000123', modelId: 'hotice.mock.video.v1', status: 'queued', reservedCredits: 3, result: null};
-      mockJobs.set(job.id, job);
+      const delayed = body?.request?.prompt === 'Delayed account B job';
+      const job = {id: delayed ? '00000000-0000-4000-8000-000000000789' : '00000000-0000-4000-8000-000000000123', modelId: 'hotice.mock.video.v1', status: 'queued', reservedCredits: 3, result: null};
+      if (!mockJobsByToken.has(authorizedToken)) mockJobsByToken.set(authorizedToken, new Map());
+      mockJobsByToken.get(authorizedToken).set(job.id, job);
+      if (delayed) {
+        delayedJobResponse = () => json(res, 201, {job, idempotentReplay: false});
+        resolveDelayedJobSeen();
+        return;
+      }
       return json(res, 201, {job, idempotentReplay: false});
     }
-    if (url.pathname === '/v1/jobs' && req.method === 'GET') return json(res, 200, {jobs: [...mockJobs.values()]});
+    if (url.pathname === '/v1/jobs' && req.method === 'GET') {
+      mockJobListRequestCount += 1;
+      mockJobListReadsByToken.set(authorizedToken, (mockJobListReadsByToken.get(authorizedToken) || 0) + 1);
+      const jobs = [...(mockJobsByToken.get(authorizedToken)?.values() || [])];
+      const delayedActiveJob = jobs.find((job) => job.id === '00000000-0000-4000-8000-000000000999');
+      if (authorizedToken === accountTokens.get('browser-test@example.test') && delayedActiveJob) {
+        delayedJobListResponse = () => json(res, 200, {jobs});
+        resolveDelayedJobListSeen();
+        return;
+      }
+      for (const job of jobs) {
+        if (job.errorCode === 'provider_outcome_unknown') continue;
+        const reads = (mockJobListReads.get(job.id) || 0) + 1;
+        mockJobListReads.set(job.id, reads);
+        job.status = reads === 1 ? 'processing' : 'succeeded';
+      }
+      return json(res, 200, {jobs});
+    }
 
     if (url.pathname === '/v1/projects' && req.method === 'GET') {
       projectRequests.push({method: req.method, path: url.pathname, authorized: true});
@@ -265,9 +318,26 @@ async function main() {
     assert.match(mockJobRequests[0].idempotencyKey, /^web-[0-9a-f-]{36}$/i);
     assert.equal(mockJobRequests[0].body.request.modelId, 'hotice.mock.video.v1');
     assert.equal(mockJobRequests[0].body.request.prompt, mockQuoteRequests[0].request.prompt);
-    await page.locator('#refreshMockJobs').click();
-    await page.getByText('Job list refreshed. Results are mock metadata only; no video was created.').waitFor();
-    assert.match(await page.locator('#mockJobs').innerText(), /Mock job · queued/);
+    await page.getByText('Mock job · processing').waitFor();
+    assert.equal(mockJobListReads.get('00000000-0000-4000-8000-000000000123'), 1,
+      'active mock jobs are refreshed automatically after submission');
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', {configurable: true, value: true});
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await page.waitForTimeout(5500);
+    assert.equal(mockJobListReads.get('00000000-0000-4000-8000-000000000123'), 1,
+      'automatic status polling pauses while the page is hidden');
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', {configurable: true, value: false});
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await page.getByText('Mock job · succeeded').waitFor();
+    const terminalJobReads = mockJobListReads.get('00000000-0000-4000-8000-000000000123');
+    assert.equal(terminalJobReads, 2, 'a foregrounded page immediately refreshes and stops on terminal status');
+    await page.waitForTimeout(5500);
+    assert.equal(mockJobListReads.get('00000000-0000-4000-8000-000000000123'), terminalJobReads,
+      'terminal jobs do not cause ongoing polling');
     assert.equal(await page.locator('#loadCloudProjects').isDisabled(), true, 'cloud list stays disabled without consent');
     assert.equal(projectRequests.length, 0, 'sign-in alone does not load cloud project data');
     await page.locator('#cloudSyncConsent').check();
@@ -280,6 +350,13 @@ async function main() {
     assert.match(unsafeSyncStatus, /Inline media is not included/, `unexpected media sync result: ${unsafeSyncStatus}; requests=${JSON.stringify(apiEvents)}; uploads=${JSON.stringify(projectRequests.map(({method, path, body}) => ({method, path, mediaIncluded: Boolean(body?.document?.mediaData)})))}`);
     assert.equal(projectRequests.filter((request) => request.method === 'PUT').length, 0, 'local media is rejected before upload');
 
+    if (!mockJobsByToken.has(accountTokens.get('browser-test@example.test'))) {
+      mockJobsByToken.set(accountTokens.get('browser-test@example.test'), new Map());
+    }
+    mockJobsByToken.get(accountTokens.get('browser-test@example.test')).set('00000000-0000-4000-8000-000000000456', {
+      id: '00000000-0000-4000-8000-000000000456', modelId: 'hotice.mock.video.v1',
+      status: 'processing', errorCode: 'provider_outcome_unknown', reservedCredits: 4, result: null,
+    });
     await updateLocalDocument(page, 'remove-media');
     await page.reload({waitUntil: 'networkidle'});
     await page.locator('#accountEmail').fill('browser-test@example.test');
@@ -320,6 +397,12 @@ async function main() {
       await secondPage.locator('#accountPassword').fill('synthetic-only-password');
       await secondPage.locator('#accountSignIn').click();
       await secondPage.getByText('Signed in and verified with the HOTICE server.').waitFor();
+      await secondPage.getByText('Mock job · succeeded').waitFor();
+      await secondPage.getByText('Provider outcome is unknown; credits remain reserved pending reconciliation.').waitFor();
+      const readsWithUnknownOutcome = mockJobListRequestCount;
+      await secondPage.waitForTimeout(5500);
+      assert.equal(mockJobListRequestCount, readsWithUnknownOutcome,
+        'an unknown provider outcome remains visible for reconciliation and is not automatically polled');
       await secondPage.locator('#cloudSyncConsent').check();
       await secondPage.locator('#loadCloudProjects').click();
       await secondPage.getByRole('button', {name: 'Save cloud copy on this device'}).first().click();
@@ -331,12 +414,84 @@ async function main() {
       await secondContext.close();
     }
 
+    const raceContext = await browser.newContext();
+    try {
+      const racePage = await raceContext.newPage();
+      racePage.setDefaultTimeout(8000);
+      await racePage.goto(pageOrigin, {waitUntil: 'networkidle'});
+      await racePage.locator('#accountEmail').fill('browser-test@example.test');
+      await racePage.locator('#accountPassword').fill('synthetic-only-password');
+      await racePage.locator('#accountSignIn').click();
+      await racePage.getByText('Signed in and verified with the HOTICE server.').waitFor();
+      await racePage.locator('#scenePrompt').fill('Delayed account A quote');
+      await racePage.locator('#quoteMockJob').click();
+      await delayedQuoteSeen;
+      await racePage.locator('#accountSignOut').click();
+      await racePage.locator('#accountEmail').fill('second-user@example.test');
+      await racePage.locator('#accountPassword').fill('synthetic-only-password');
+      await racePage.locator('#accountSignIn').click();
+      await racePage.getByText('Signed in and verified with the HOTICE server.').waitFor();
+      delayedQuoteResponse();
+      delayedQuoteResponse = null;
+      await racePage.waitForTimeout(200);
+      assert.equal(await racePage.locator('#submitMockJob').isDisabled(), true,
+        'a late quote from a signed-out account cannot authorize a job for the next account');
+      assert.doesNotMatch(await racePage.locator('#mockGenerationStatus').textContent(), /7 simulated credits/,
+        'a late quote cannot overwrite the next account status');
+
+      await racePage.locator('#scenePrompt').fill('Delayed account B job');
+      await racePage.locator('#quoteMockJob').click();
+      await racePage.getByText(/Mock dry run quote: 3 simulated credits/).waitFor();
+      await racePage.evaluate(() => { window.confirm = () => true; });
+      await racePage.locator('#submitMockJob').click();
+      await delayedJobSeen;
+      await racePage.locator('#accountSignOut').click();
+      await racePage.locator('#accountEmail').fill('browser-test@example.test');
+      await racePage.locator('#accountPassword').fill('synthetic-only-password');
+      await racePage.locator('#accountSignIn').click();
+      await racePage.getByText('Signed in and verified with the HOTICE server.').waitFor();
+      delayedJobResponse();
+      delayedJobResponse = null;
+      await racePage.waitForTimeout(200);
+      assert.doesNotMatch(await racePage.locator('#mockJobs').textContent(), /00000000-0000-4000-8000-000000000789/,
+        'a late job response from a signed-out account cannot appear in the next account job list');
+      assert.doesNotMatch(await racePage.locator('#mockGenerationStatus').textContent(), /Mock job queued/,
+        'a late job response cannot overwrite the next account status');
+
+      const accountAToken = accountTokens.get('browser-test@example.test');
+      mockJobsByToken.get(accountAToken).set('00000000-0000-4000-8000-000000000999', {
+        id: '00000000-0000-4000-8000-000000000999', modelId: 'hotice.mock.video.v1',
+        status: 'processing', reservedCredits: 2, result: null,
+      });
+      const accountBToken = accountTokens.get('second-user@example.test');
+      const accountBReadsBefore = mockJobListReadsByToken.get(accountBToken) || 0;
+      await racePage.locator('#refreshMockJobs').click();
+      await delayedJobListSeen;
+      await racePage.locator('#accountSignOut').click();
+      await racePage.locator('#accountEmail').fill('second-user@example.test');
+      await racePage.locator('#accountPassword').fill('synthetic-only-password');
+      await racePage.locator('#accountSignIn').click();
+      await racePage.getByText('ID 00000000-0000-4000-8000-000000000789 · simulated credits reserved: 3').waitFor();
+      assert.equal(mockJobListReadsByToken.get(accountBToken), accountBReadsBefore + 1,
+        'an in-flight job refresh for the prior account does not suppress the next account refresh');
+      delayedJobListResponse();
+      delayedJobListResponse = null;
+      await racePage.waitForTimeout(200);
+      assert.doesNotMatch(await racePage.locator('#mockJobs').textContent(), /00000000-0000-4000-8000-000000000999/,
+        'a late job-list response cannot add the prior account jobs to the new account list');
+      assert.match(await racePage.locator('#mockJobs').textContent(), /00000000-0000-4000-8000-000000000789/,
+        'the new account job list remains visible after the prior account refresh finishes');
+    } finally {
+      await raceContext.close();
+    }
+
     console.log(JSON.stringify({
       result: 'PASS',
       scenarios: [
         'local project save, reload and reopen',
         'media data rejected before upload',
-        'authenticated mock generation quote, explicit submit, idempotency and status refresh',
+        'authenticated mock generation quote, explicit submit, idempotency, foreground polling pause/resume, terminal stop and unknown-outcome reconciliation hold',
+        'late quote, job and job-list responses cannot update or suppress another account view',
         'cloud controls disabled until login and consent',
         'entitled account loads cloud list',
         'first cloud upload is authenticated',
@@ -345,7 +500,7 @@ async function main() {
         'a second device downloads a cloud project into its own local storage',
       ],
       mockCloudProjectCount: cloudProjects.size,
-      mockJobCount: mockJobs.size,
+      mockJobCount: [...mockJobsByToken.values()].reduce((count, jobs) => count + jobs.size, 0),
       realProviderCalls: 0,
     }));
   } finally {

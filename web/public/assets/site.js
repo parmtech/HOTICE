@@ -513,6 +513,30 @@
   let cloudProjectCache = [];
   let mockGenerationEnabled = false;
   let currentMockQuote = null;
+  let mockJobsRefreshTimer = null;
+  let mockJobsRefreshInFlightToken = null;
+  let mockJobsNeedPolling = false;
+  let mockJobsRefreshFailures = 0;
+  let mockQuoteGeneration = 0;
+  const mockJobActiveStatuses = new Set(['queued', 'processing']);
+  const mockJobPollIntervalMs = 5000;
+
+  function stopMockJobsPolling() {
+    if (mockJobsRefreshTimer !== null) clearTimeout(mockJobsRefreshTimer);
+    mockJobsRefreshTimer = null;
+    mockJobsNeedPolling = false;
+    mockJobsRefreshFailures = 0;
+  }
+
+  function scheduleMockJobsRefresh(delay = mockJobPollIntervalMs) {
+    if (mockJobsRefreshTimer !== null) clearTimeout(mockJobsRefreshTimer);
+    mockJobsRefreshTimer = null;
+    if (!mockJobsNeedPolling || document.hidden || !accountToken || !mockGenerationEnabled) return;
+    mockJobsRefreshTimer = setTimeout(() => {
+      mockJobsRefreshTimer = null;
+      refreshMockJobs({automatic: true});
+    }, delay);
+  }
 
   function projectStatus(message) { status('projectStatus', message); }
   function cloudProjectStatus(message) { status('cloudProjectStatus', message); }
@@ -533,20 +557,25 @@
 
   async function quoteMockJob() {
     if (!accountToken || !mockGenerationEnabled) return;
+    const requestToken = accountToken;
+    const requestGeneration = ++mockQuoteGeneration;
     currentMockQuote = null;
     refreshMockControls();
     const prompt = get('scenePrompt')?.value.trim() || '';
     if (!prompt) return mockJobStatus('Write a scene prompt before requesting a quote.');
     mockJobStatus('Requesting a simulated-credit quote for this prompt…');
     try {
-      const response = await accountApi('/v1/jobs/quote', {method: 'POST', token: accountToken,
+      const response = await accountApi('/v1/jobs/quote', {method: 'POST', token: requestToken,
         body: {request: {modelId: 'hotice.mock.video.v1', prompt}}});
+      if (accountToken !== requestToken || requestGeneration !== mockQuoteGeneration ||
+          get('scenePrompt')?.value.trim() !== prompt) return;
       if (typeof response.quoteToken !== 'string' || !Number.isInteger(response.credits) ||
           response.modelId !== 'hotice.mock.video.v1') throw new Error('Invalid mock quote.');
       currentMockQuote = {token: response.quoteToken, prompt, credits: response.credits};
       refreshMockControls();
       mockJobStatus('Mock dry run quote: ' + response.credits + ' simulated credits. No money is charged. Quote expires ' + response.expiresAt + '.');
     } catch (error) {
+      if (accountToken !== requestToken || requestGeneration !== mockQuoteGeneration) return;
       currentMockQuote = null;
       refreshMockControls();
       mockJobStatus(error.status === 503 ? 'Mock generation is disabled on this server.' :
@@ -556,6 +585,7 @@
 
   async function submitMockJob() {
     if (!accountToken || !mockGenerationEnabled || !currentMockQuote) return;
+    const requestToken = accountToken;
     const quote = currentMockQuote;
     const prompt = get('scenePrompt')?.value.trim() || '';
     if (prompt !== quote.prompt) {
@@ -570,15 +600,21 @@
     if (submit) submit.disabled = true;
     mockJobStatus('Submitting the mock dry run…');
     try {
-      const response = await accountApi('/v1/jobs', {method: 'POST', token: accountToken,
+      const response = await accountApi('/v1/jobs', {method: 'POST', token: requestToken,
         extraHeaders: {'Idempotency-Key': 'web-' + crypto.randomUUID()},
         body: {quoteToken: quote.token, request: {modelId: 'hotice.mock.video.v1', prompt}}});
+      if (accountToken !== requestToken) return;
       if (!response.job || typeof response.job.id !== 'string' || typeof response.job.status !== 'string') {
         throw new Error('Invalid mock job response.');
       }
-      mockJobStatus('Mock job ' + response.job.status + '. This staging workflow does not produce video. Use Refresh my jobs to check its latest state.');
+      mockJobsNeedPolling = mockJobActiveStatuses.has(response.job.status) &&
+        response.job.errorCode !== 'provider_outcome_unknown';
+      mockJobsRefreshFailures = 0;
+      mockJobStatus('Mock job ' + response.job.status + '. This dry run creates no video. We will check for updates while this job is active; polling pauses when this page is hidden.');
       await renderMockJobs([response.job]);
+      scheduleMockJobsRefresh(2000);
     } catch (error) {
+      if (accountToken !== requestToken) return;
       mockJobStatus(error.status === 402 ? 'Not enough simulated credits for this mock job.' :
         'The server could not confirm job submission. Refresh your jobs before trying again.');
     } finally {
@@ -602,23 +638,59 @@
     }
   }
 
-  async function refreshMockJobs() {
+  async function refreshMockJobs({automatic = false, silent = false} = {}) {
     if (!accountToken || !mockGenerationEnabled) return;
-    mockJobStatus('Loading your mock job status…');
+    const requestToken = accountToken;
+    if (mockJobsRefreshInFlightToken === requestToken) return;
+    if (mockJobsRefreshTimer !== null) clearTimeout(mockJobsRefreshTimer);
+    mockJobsRefreshTimer = null;
+    mockJobsRefreshInFlightToken = requestToken;
+    if (!automatic && !silent) mockJobStatus('Loading your mock job status…');
     try {
-      const response = await accountApi('/v1/jobs', {token: accountToken});
+      const response = await accountApi('/v1/jobs', {token: requestToken});
+      if (accountToken !== requestToken) return;
       if (!Array.isArray(response.jobs)) throw new Error('Invalid jobs response.');
       await renderMockJobs(response.jobs);
-      mockJobStatus('Job list refreshed. Results are mock metadata only; no video was created.');
+      mockJobsRefreshFailures = 0;
+      mockJobsNeedPolling = response.jobs.some((job) =>
+        mockJobActiveStatuses.has(job.status) && job.errorCode !== 'provider_outcome_unknown');
+      if (!silent) {
+        mockJobStatus(mockJobsNeedPolling
+          ? 'Job status updated. We will check again in five seconds while it is active. Polling pauses when this page is hidden; no video is created by this mock workflow.'
+          : 'Job list refreshed. Results are mock metadata only; no video was created.');
+      }
+      scheduleMockJobsRefresh();
     } catch (_) {
-      mockJobStatus('Could not load mock job status. Your local scene remains available.');
+      if (accountToken !== requestToken) return;
+      mockJobsRefreshFailures += 1;
+      const delay = Math.min(30000, mockJobPollIntervalMs * (2 ** Math.min(mockJobsRefreshFailures - 1, 3)));
+      if (automatic) {
+        mockJobStatus('Could not refresh job status. Your local scene remains available; we will retry in ' + Math.round(delay / 1000) + ' seconds. This check did not submit a job.');
+      } else if (!silent) {
+        mockJobStatus('Could not load mock job status. Your local scene remains available. Retry is safe; no job was submitted by this check.');
+      }
+      scheduleMockJobsRefresh(delay);
+    } finally {
+      if (mockJobsRefreshInFlightToken === requestToken) {
+        mockJobsRefreshInFlightToken = null;
+        if (mockJobsNeedPolling && mockJobsRefreshTimer === null) scheduleMockJobsRefresh();
+      }
     }
   }
 
   get('quoteMockJob')?.addEventListener('click', quoteMockJob);
   get('submitMockJob')?.addEventListener('click', submitMockJob);
   get('refreshMockJobs')?.addEventListener('click', refreshMockJobs);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (mockJobsRefreshTimer !== null) clearTimeout(mockJobsRefreshTimer);
+      mockJobsRefreshTimer = null;
+    } else if (mockJobsNeedPolling) {
+      scheduleMockJobsRefresh(0);
+    }
+  });
   get('scenePrompt')?.addEventListener('input', () => {
+    mockQuoteGeneration += 1;
     if (currentMockQuote && get('scenePrompt').value.trim() !== currentMockQuote.prompt) {
       currentMockQuote = null;
       refreshMockControls();
@@ -956,6 +1028,8 @@
   refreshCloudControls();
 
   function showAccountForm(message) {
+    mockQuoteGeneration += 1;
+    stopMockJobsPolling();
     accountToken = null;
     mockGenerationEnabled = false;
     currentMockQuote = null;
@@ -1006,11 +1080,13 @@
       refreshCloudControls();
       refreshMockControls();
       await refreshLocalProjects();
+      await refreshMockJobs({silent: true});
     } catch (error) {
       if (issuedToken && accountApiOrigin) {
         accountApi('/v1/auth/logout', {method: 'POST', token: issuedToken}).catch(() => {});
       }
       accountToken = null;
+      stopMockJobsPolling();
       status('accountStatus', error.status === 401
         ? 'Sign-in was not accepted. Check the email and password.'
         : error.status === 403
@@ -1024,6 +1100,8 @@
 
   get('accountSignOut')?.addEventListener('click', async () => {
     const token = accountToken;
+    mockQuoteGeneration += 1;
+    stopMockJobsPolling();
     accountToken = null;
     mockGenerationEnabled = false;
     currentMockQuote = null;
@@ -1050,6 +1128,7 @@
 
   window.addEventListener('pagehide', () => {
     const token = accountToken;
+    stopMockJobsPolling();
     accountToken = null;
     mockGenerationEnabled = false;
     currentMockQuote = null;
