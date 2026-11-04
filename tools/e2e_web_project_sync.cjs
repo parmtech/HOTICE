@@ -28,6 +28,22 @@ let conflictProjectId = null;
 let cloudQuotaBytes = 10 * 1024 * 1024;
 let rejectNextUploadForQuota = false;
 let mediaUploadAttempts = 0;
+let deferNextCloudProjectList = false;
+let delayedCloudProjectListResponse = null;
+let resolveCloudProjectListRead;
+const delayedCloudProjectListRead = new Promise((resolve) => { resolveCloudProjectListRead = resolve; });
+let delayedCloudProjectReadId = null;
+let delayedCloudProjectResponse = null;
+let resolveCloudProjectRead;
+const delayedCloudProjectRead = new Promise((resolve) => { resolveCloudProjectRead = resolve; });
+let deferNextCloudMediaRead = false;
+let delayedCloudMediaResponse = null;
+let resolveCloudMediaRead;
+const delayedCloudMediaRead = new Promise((resolve) => { resolveCloudMediaRead = resolve; });
+let deferNextMediaGrant = false;
+let delayedMediaGrantResponse = null;
+let resolveMediaGrantRead;
+const delayedMediaGrantRead = new Promise((resolve) => { resolveMediaGrantRead = resolve; });
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -105,6 +121,12 @@ const api = http.createServer((req, res) => {
       const file = [...cloudProjects.values()].flatMap((project) => project.files).find((item) => item.id === grantMatch[1]);
       if (!file) return json(res, 404, {error: 'Media not found'});
       if (file.scan_status !== 'clean') return json(res, 423, {error: 'Security scan pending'});
+      if (deferNextMediaGrant) {
+        deferNextMediaGrant = false;
+        delayedMediaGrantResponse = () => json(res, 201, {accessToken: 'b'.repeat(64), tokenType: 'Hotice-Media', contentPath: '/v1/media/' + file.id + '/content', expiresAt: new Date(Date.now() + 120000).toISOString()});
+        resolveMediaGrantRead();
+        return;
+      }
       return json(res, 201, {accessToken: 'b'.repeat(64), tokenType: 'Hotice-Media', contentPath: '/v1/media/' + file.id + '/content', expiresAt: new Date(Date.now() + 120000).toISOString()});
     }
     const contentMatch = url.pathname.match(/^\/v1\/media\/([0-9a-f-]{36})\/content$/i);
@@ -157,6 +179,14 @@ const api = http.createServer((req, res) => {
 
     if (url.pathname === '/v1/projects' && req.method === 'GET') {
       projectRequests.push({method: req.method, path: url.pathname, authorized: true});
+      if (deferNextCloudProjectList) {
+        deferNextCloudProjectList = false;
+        delayedCloudProjectListResponse = () => json(res, 200, {projects: [
+          {id: '00000000-0000-4000-8000-000000000901', title: 'Previous session private project', revision: 4, updated_at: new Date().toISOString()},
+        ]});
+        resolveCloudProjectListRead();
+        return;
+      }
       const projects = [...cloudProjects.values()].map(({id, title, revision, updated_at}) => ({id, title, revision, updated_at}));
       return json(res, 200, {projects});
     }
@@ -164,6 +194,22 @@ const api = http.createServer((req, res) => {
     if (match && req.method === 'GET') {
       projectRequests.push({method: req.method, path: url.pathname, authorized: true});
       const project = cloudProjects.get(match[1]);
+      if (match[1] === delayedCloudProjectReadId && project) {
+        delayedCloudProjectResponse = () => {
+          const {files, ...projectData} = project;
+          json(res, 200, {project: projectData, files: files.map(({bytes, ...file}) => file)});
+        };
+        resolveCloudProjectRead();
+        return;
+      }
+      if (deferNextCloudMediaRead) {
+        deferNextCloudMediaRead = false;
+        delayedCloudMediaResponse = () => json(res, 200, {files: [
+          {id: '00000000-0000-4000-8000-000000000902', mime: 'video/mp4', byte_size: 512, scan_status: 'clean'},
+        ]});
+        resolveCloudMediaRead();
+        return;
+      }
       if (project) {
         const {files, ...projectData} = project;
         return json(res, 200, {project: projectData, files: files.map(({bytes, ...file}) => file)});
@@ -480,6 +526,71 @@ async function main() {
       await secondContext.close();
     }
 
+    const remoteOnlyProjectId = '00000000-0000-4000-8000-000000000900';
+    const remoteOnlyFileId = '00000000-0000-4000-8000-000000000903';
+    cloudProjects.set(remoteOnlyProjectId, {
+      id: remoteOnlyProjectId, title: 'Remote-only consent test', revision: 1,
+      document: {scenes: [{prompt: 'Private cloud prompt', model: 'storyboard_demo'}]},
+      files: [{id: remoteOnlyFileId, mime: 'video/mp4', byte_size: 512, scan_status: 'clean'}],
+      updated_at: new Date().toISOString(),
+    });
+    cloudFileBytes.set(remoteOnlyFileId, Buffer.from('synthetic clean cloud video'));
+    await page.locator('#loadCloudProjects').click();
+    const remoteOnlyCard = page.locator('#cloudProjects .project-card').filter({hasText: 'Remote-only consent test'});
+    await remoteOnlyCard.getByRole('button', {name: 'Save cloud copy on this device'}).waitFor();
+    delayedCloudProjectReadId = remoteOnlyProjectId;
+    await remoteOnlyCard.getByRole('button', {name: 'Save cloud copy on this device'}).click();
+    await delayedCloudProjectRead;
+    await page.locator('#cloudSyncConsent').uncheck();
+    delayedCloudProjectResponse();
+    delayedCloudProjectResponse = null;
+    await page.waitForTimeout(200);
+    assert.equal(await page.locator('#localProjects .project-card').filter({hasText: 'Remote-only consent test'}).count(), 0,
+      'revoking consent while a cloud download is in flight prevents its data from being saved locally');
+    assert.match(await page.locator('#cloudProjectStatus').textContent(), /Check the consent box/,
+      'a late project download does not overwrite the consent-revoked status');
+    delayedCloudProjectReadId = null;
+
+    await page.locator('#cloudSyncConsent').check();
+    deferNextCloudProjectList = true;
+    await page.locator('#loadCloudProjects').click();
+    await delayedCloudProjectListRead;
+    await page.locator('#cloudSyncConsent').uncheck();
+    await page.locator('#cloudSyncConsent').check();
+    await page.locator('#loadCloudProjects').click();
+    await page.getByText('Cloud project list loaded. Media and Actor photos were not downloaded.').waitFor();
+    delayedCloudProjectListResponse();
+    delayedCloudProjectListResponse = null;
+    await page.waitForTimeout(200);
+    assert.equal(await page.locator('#cloudProjects').getByText('Previous session private project').count(), 0,
+      'a project list response from before consent revocation cannot replace the current list');
+    assert.match(await page.locator('#cloudProjectStatus').textContent(), /Cloud project list loaded/);
+
+    const staleMediaCard = page.locator('#cloudProjects .project-card').filter({hasText: 'Remote-only consent test'});
+    deferNextCloudMediaRead = true;
+    await staleMediaCard.getByRole('button', {name: 'View secure media'}).click();
+    await delayedCloudMediaRead;
+    await page.locator('#cloudSyncConsent').uncheck();
+    delayedCloudMediaResponse();
+    delayedCloudMediaResponse = null;
+    await page.waitForTimeout(200);
+    assert.equal(await staleMediaCard.locator('.cloud-media-list').count(), 0,
+      'late media metadata cannot repopulate a panel after consent revocation');
+    await page.locator('#cloudSyncConsent').check();
+    await staleMediaCard.getByRole('button', {name: 'View secure media'}).click();
+    await staleMediaCard.getByText('Security scan passed').waitFor();
+    deferNextMediaGrant = true;
+    await staleMediaCard.getByRole('button', {name: 'Secure preview'}).click();
+    await delayedMediaGrantRead;
+    await page.locator('#cloudSyncConsent').uncheck();
+    delayedMediaGrantResponse();
+    delayedMediaGrantResponse = null;
+    await page.waitForTimeout(200);
+    assert.equal(await page.locator('#previewVideo').getAttribute('src'), null,
+      'a late media grant cannot start playback after consent revocation');
+    assert.doesNotMatch(await page.locator('#editorStatus').textContent(), /Secure preview ready/);
+    await page.locator('#cloudSyncConsent').check();
+
     console.log(JSON.stringify({
       result: 'PASS',
       scenarios: [
@@ -494,6 +605,7 @@ async function main() {
         'revision conflict preserves local project',
         'separate cloud copy preserves both versions',
         'a second device downloads a cloud project into its own local storage',
+        'revoking consent blocks late cloud project downloads, project lists, media metadata and preview grants',
       ],
       mockCloudProjectCount: cloudProjects.size,
       mockJobCount: mockJobs.size,
