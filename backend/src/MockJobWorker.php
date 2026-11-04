@@ -114,11 +114,14 @@ final class MockJobWorker
         $dispatch->execute([$job['provider_attempt_id'], $job['lease_token']]);
         if ($dispatch->rowCount() !== 1) return ['jobId' => $job['id'], 'status' => 'lease_lost'];
         $operation = $adapter->submit($providerRequest, $job['operation_key']);
+        $registry->validateOperation($providerRequest->modelId, $operation);
         $accepted = $db->prepare("UPDATE provider_attempts SET status='accepted',remote_operation_id=? WHERE id=? AND lease_token=? AND status='dispatching'");
         $accepted->execute([$operation->operationId, $job['provider_attempt_id'], $job['lease_token']]);
         if ($accepted->rowCount() !== 1) return ['jobId' => $job['id'], 'status' => 'lease_lost'];
         for ($poll = 0; $poll < 2 && in_array($operation->status, ['queued', 'processing'], true); $poll++) {
-            $operation = $adapter->poll($operation->operationId);
+            $expectedOperationId = $operation->operationId;
+            $operation = $adapter->poll($expectedOperationId);
+            $registry->validateOperation($providerRequest->modelId, $operation, $expectedOperationId);
         }
 
         if ($operation->status === 'failed' && $operation->retryable) {

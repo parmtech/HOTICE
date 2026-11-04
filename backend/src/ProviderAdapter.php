@@ -247,6 +247,18 @@ final class ProviderRegistry
         return $adapter;
     }
 
+    /** Bind returned operations/results to the requested model and remote operation. */
+    public function validateOperation(string $modelId, ProviderOperation $operation, ?string $expectedOperationId = null): void
+    {
+        $this->forModel($modelId);
+        if ($expectedOperationId !== null && !hash_equals($expectedOperationId, $operation->operationId)) {
+            throw new \UnexpectedValueException('Provider operation identifier changed during polling.');
+        }
+        if ($operation->status === 'succeeded' && ($operation->result['modelId'] ?? null) !== $modelId) {
+            throw new \UnexpectedValueException('Provider result model does not match the requested model.');
+        }
+    }
+
     /** @return list<string> */
     public function enabledModelIds(): array
     {
