@@ -4,6 +4,7 @@
 
 ## Music Video Studio cue editing — 4 November 2026
 - [x] Add editable, millisecond-based manual lyric/section cues with start/end validation, chronological ordering, add/edit/remove, cue-count/text bounds, and loaded-song duration checks.
+- [x] Show manual cue overlaps on estimated scene windows and warn when cues extend beyond the current storyboard runtime.
 - [x] Keep unsaved cues project-isolated; include an immutable cue snapshot with a saved storyboard and restore it when reopening that plan.
 - [x] Label timing as manual, avoid implying automatic transcription/beat detection, and state that current storyboard saves last for the session only.
 - [x] Local `flutter test --no-pub` passes all 42 tests; `flutter analyze --no-pub --no-fatal-infos` passes with informational lint suggestions only; `git diff --check` passes.

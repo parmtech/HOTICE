@@ -336,6 +336,13 @@ void main() {
     expect(MusicStoryboardTimeline.clock(cues.last.endSeconds), '00:20');
     expect(MusicStoryboardTimeline.clock(125), '02:05');
     expect(MusicStoryboardTimeline.arrange([]), isEmpty);
+    final matched = MusicStoryboardTimeline.matchManualCues(shots, const [
+      ManualMusicCue(startMilliseconds: 3000, endMilliseconds: 5000, text: 'At the cut'),
+      ManualMusicCue(startMilliseconds: 7000, endMilliseconds: 8000, text: 'Second scene only'),
+      ManualMusicCue(startMilliseconds: 20000, endMilliseconds: 21000, text: 'Outside timeline'),
+    ]);
+    expect(matched[0].map((cue) => cue.text), ['At the cut']);
+    expect(matched[1].map((cue) => cue.text), ['At the cut', 'Second scene only']);
   });
 
   testWidgets('music storyboard scene duration can be edited manually',

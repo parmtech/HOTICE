@@ -2,7 +2,7 @@
 
 ## Current continuation — manual Music Video Studio cue editor
 
-Active branch: `feat/music-timed-lyric-cues`, based on `origin/main` at `e310bc3`. Music Video Studio now lets a creator add, edit, sort and remove manual lyric or section cues with start/end timestamps. When a song is selected for local listening, a cue must end within its detected duration. Cues stay isolated in the active project's unsaved draft and are included in saved storyboard snapshots. The UI explicitly says this is manual timing, not transcription or beat detection; snapshots are session-only in this branch. No audio bytes are uploaded and no provider/render calls are made.
+Active branch: `feat/music-timed-lyric-cues`, based on `origin/main` at `e310bc3`. Music Video Studio now lets a creator add, edit, sort and remove manual lyric or section cues with start/end timestamps. Scene cards show cues overlapping their estimated time windows; cues outside the current storyboard duration are flagged. When a song is selected for local listening, a cue must end within its detected duration. Cues stay isolated in the active project's unsaved draft and are included in saved storyboard snapshots. The UI explicitly says this is manual timing, not transcription or beat detection; snapshots are session-only in this branch. No audio bytes are uploaded and no provider/render calls are made.
 
 Local verification on the uncommitted code: all 42 Flutter tests pass; Flutter analysis passes with informational lints only; `git diff --check` passes. Check the PR and exact-head Actions after the code is pushed. Physical device audio/session/accessibility acceptance and durable song/cue storage remain open. Overall release is **NOT READY TO PUBLISH**.
 

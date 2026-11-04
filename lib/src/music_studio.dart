@@ -36,6 +36,22 @@ class MusicStoryboardTimeline {
     ];
   }
 
+  /// Match user-timed cues to the estimated scene windows they overlap.
+  /// Windows use [start, end) boundaries; cues spanning a cut appear on both
+  /// scenes. This never infers beats or lyric timing.
+  static List<List<ManualMusicCue>> matchManualCues(
+    List<StoryboardShot> shots,
+    List<ManualMusicCue> manualCues,
+  ) {
+    final schedule = arrange(shots);
+    return [
+      for (final scene in schedule)
+        List<ManualMusicCue>.unmodifiable(manualCues.where((cue) =>
+            cue.startMilliseconds < scene.endSeconds * 1000 &&
+            cue.endMilliseconds > scene.startSeconds * 1000)),
+    ];
+  }
+
   static String clock(int seconds) {
     final safe = seconds < 0 ? 0 : seconds;
     return '${(safe ~/ 60).toString().padLeft(2, '0')}:${(safe % 60).toString().padLeft(2, '0')}';
@@ -381,6 +397,7 @@ class _MusicVideoStudioPageState extends State<MusicVideoStudioPage> {
     final matches = widget.store.avatars.where((a) => a.name == selectedAvatar);
     final avatar = matches.isEmpty ? null : matches.first;
     final cues = MusicStoryboardTimeline.arrange(shots);
+    final sceneCues = MusicStoryboardTimeline.matchManualCues(shots, manualCues);
     final totalSeconds = cues.isEmpty ? 0 : cues.last.endSeconds;
     return PageFrame(
       child: Column(
@@ -502,6 +519,15 @@ class _MusicVideoStudioPageState extends State<MusicVideoStudioPage> {
           const SizedBox(height: 6),
           Text('Estimated runtime: ${MusicStoryboardTimeline.clock(totalSeconds)}',
               style: Theme.of(context).textTheme.titleSmall),
+          if (shots.isNotEmpty && manualCues.any((cue) =>
+              cue.endMilliseconds > totalSeconds * 1000))
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                'Some manual cues fall outside the current estimated scene timeline.',
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
           const SizedBox(height: 14),
           if (shots.isEmpty)
             const StudioPanel(
@@ -534,6 +560,26 @@ class _MusicVideoStudioPageState extends State<MusicVideoStudioPage> {
                     ),
                     const SizedBox(height: 10),
                     Text(shots[i].description),
+                    if (sceneCues[i].isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text('Manual cue overlap', style: Theme.of(context).textTheme.labelMedium),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: [
+                          for (final cue in sceneCues[i])
+                            Chip(
+                              avatar: const Icon(Icons.lyrics_outlined, size: 16),
+                              label: Text(
+                                '${_cueClock(cue.startMilliseconds)} · '
+                                '${cue.text}',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     Wrap(
                       crossAxisAlignment: WrapCrossAlignment.center,
