@@ -2,6 +2,8 @@
 declare(strict_types=1);
 require_once dirname(__DIR__) . '/src/Support.php';
 require_once dirname(__DIR__) . '/src/AdminSecurity.php';
+require_once dirname(__DIR__) . '/src/ProviderAdapter.php';
+require_once dirname(__DIR__) . '/src/MockProviderAdapter.php';
 use Hotice\ApiError;
 use Hotice\AdminSecurity;
 use Hotice\Support;
@@ -24,6 +26,75 @@ $appKey = str_repeat('ab', 32);
 $sealed = AdminSecurity::encryptProviderKey('openai', 'secret-example', $appKey);
 check(AdminSecurity::decryptProviderKey('openai', $sealed['ciphertext'], $sealed['nonce'], $sealed['tag'], $appKey) === 'secret-example', 'provider secret encryption roundtrip');
 try { AdminSecurity::decryptProviderKey('google', $sealed['ciphertext'], $sealed['nonce'], $sealed['tag'], $appKey); check(false, 'provider keys bound to provider'); } catch (RuntimeException) { check(true, 'provider keys bound to provider'); }
+$mockProvider = new Hotice\MockProviderAdapter();
+$providerRegistry = new Hotice\ProviderRegistry([$mockProvider]);
+check($providerRegistry->enabledModelIds() === [Hotice\MockProviderAdapter::MODEL_ID], 'registry exposes only registered mock model');
+check($providerRegistry->forModel(Hotice\MockProviderAdapter::MODEL_ID) === $mockProvider, 'model routes to its registered adapter');
+try { $providerRegistry->forModel('unknown.provider.model'); check(false, 'unknown provider model fails closed'); } catch (ApiError $e) { check($e->status === 422, 'unknown provider model fails closed'); }
+$providerRequest = new Hotice\ProviderRequest(Hotice\MockProviderAdapter::MODEL_ID, 'synthetic prompt must not be returned', [], ['simulate' => 'success', 'attempt' => 1]);
+check($providerRegistry->validateRequest($providerRequest) === $mockProvider, 'model capability accepts its supported empty attachment set');
+$providerMedia = ['mediaId' => Support::uuid(), 'role' => 'reference_image', 'mime' => 'image/jpeg', 'byteSize' => 1024, 'sha256' => str_repeat('a', 64)];
+try { new Hotice\ProviderRequest(Hotice\MockProviderAdapter::MODEL_ID, 'prompt', [$providerMedia + ['path' => '/private/file']]); check(false, 'provider attachment rejects local path metadata'); } catch (InvalidArgumentException) { check(true, 'provider attachment rejects local path metadata'); }
+try { $providerRegistry->validateRequest(new Hotice\ProviderRequest(Hotice\MockProviderAdapter::MODEL_ID, 'prompt', [$providerMedia])); check(false, 'mock model rejects unsupported attachment before dispatch'); } catch (ApiError $e) { check($e->status === 422, 'mock model rejects unsupported attachment before dispatch'); }
+$imageAdapter = new class implements Hotice\ProviderAdapter {
+    public function id(): string { return 'fixture'; }
+    public function modelCapabilities(): array { return [new Hotice\ProviderModelCapabilities('fixture.video.v1', ['reference_image' => ['image/jpeg', 'image/png']], 2, 2 * 1024 * 1024, [
+        ['durationSeconds' => 4, 'aspectRatio' => '16:9'],
+        ['durationSeconds' => 8, 'aspectRatio' => '9:16'],
+    ], 120)]; }
+    public function submit(Hotice\ProviderRequest $request, string $idempotencyKey): Hotice\ProviderOperation { return new Hotice\ProviderOperation(Support::uuid(), 'queued'); }
+    public function poll(string $operationId): Hotice\ProviderOperation { return new Hotice\ProviderOperation($operationId, 'processing'); }
+    public function cancel(string $operationId): Hotice\ProviderOperation { return new Hotice\ProviderOperation($operationId, 'cancelled'); }
+};
+$capabilityRegistry = new Hotice\ProviderRegistry([$imageAdapter]);
+check($capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [$providerMedia], [], 4, '16:9')) === $imageAdapter, 'declared reference image and duration/aspect capabilities accept the request');
+try { $capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [$providerMedia], [], 4, '9:16')); check(false, 'model rejects unsupported duration/aspect pair'); } catch (ApiError $e) { check($e->status === 422, 'model rejects unsupported duration/aspect pair'); }
+try { $capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', str_repeat('p', 121), [], [], 4, '16:9')); check(false, 'model enforces per-model prompt limit'); } catch (ApiError $e) { check($e->status === 422, 'model enforces per-model prompt limit'); }
+try { new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [], [], 4); check(false, 'generation settings require a complete duration/aspect pair'); } catch (InvalidArgumentException) { check(true, 'generation settings require a complete duration/aspect pair'); }
+try { $capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [array_merge($providerMedia, ['mime' => 'video/mp4'])], [], 4, '16:9')); check(false, 'model rejects unsupported attachment MIME before dispatch'); } catch (ApiError $e) { check($e->status === 422, 'model rejects unsupported attachment MIME before dispatch'); }
+try { $capabilityRegistry->validateRequest(new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [
+    $providerMedia,
+    array_merge($providerMedia, ['mediaId' => Support::uuid(), 'byteSize' => 2 * 1024 * 1024]),
+], [], 4, '16:9')); check(false, 'model enforces aggregate attachment byte limit'); } catch (ApiError $e) { check($e->status === 422, 'model enforces aggregate attachment byte limit'); }
+try { new Hotice\ProviderRequest('fixture.video.v1', 'prompt', [$providerMedia, $providerMedia]); check(false, 'duplicate media IDs rejected before dispatch'); } catch (InvalidArgumentException) { check(true, 'duplicate media IDs rejected before dispatch'); }
+try { new Hotice\ProviderModelCapabilities('fixture.video.v1', ['reference_image' => ['image/jpeg']], 2, 0); check(false, 'attachment capabilities require a positive byte limit'); } catch (InvalidArgumentException) { check(true, 'attachment capabilities require a positive byte limit'); }
+$providerOperation = $mockProvider->submit($providerRequest, str_repeat('a', 64));
+check($providerOperation->status === 'queued', 'mock provider submit is asynchronous');
+check($mockProvider->submit($providerRequest, str_repeat('a', 64))->operationId === $providerOperation->operationId, 'provider idempotency reuses operation');
+check($mockProvider->poll($providerOperation->operationId)->status === 'processing', 'provider polling normalizes processing state');
+$providerOperation = $mockProvider->poll($providerOperation->operationId);
+check($providerOperation->status === 'succeeded', 'mock provider reaches normalized success');
+check(($providerOperation->result['mode'] ?? null) === 'mock_dry_run' && ($providerOperation->result['outcome'] ?? null) === 'dry_run_no_media' && ($providerOperation->result['assets'] ?? null) === [], 'mock provider returns no prompt or generated media');
+$providerOutput = new Hotice\ProviderOperation(Support::uuid(), 'succeeded', [
+    'mode' => 'provider_output', 'modelId' => 'fixture.video.v1', 'outcome' => 'media_ready',
+    'assets' => [['mediaId' => Support::uuid(), 'mime' => 'video/mp4', 'byteSize' => 1024, 'sha256' => str_repeat('c', 64)]],
+]);
+check($providerOutput->status === 'succeeded' && count($providerOutput->result['assets']) === 1, 'normalized provider result accepts private HOTICE media metadata');
+$capabilityRegistry->validateOperation('fixture.video.v1', $providerOutput);
+try { $capabilityRegistry->validateOperation('fixture.video.v1', new Hotice\ProviderOperation(Support::uuid(), 'succeeded', [
+    'mode' => 'provider_output', 'modelId' => 'hotice.mock.video.v1', 'outcome' => 'media_ready',
+    'assets' => [['mediaId' => Support::uuid(), 'mime' => 'video/mp4', 'byteSize' => 10, 'sha256' => str_repeat('e', 64)]],
+])); check(false, 'provider result cannot change the requested model'); }
+catch (UnexpectedValueException) { check(true, 'provider result cannot change the requested model'); }
+try { $capabilityRegistry->validateOperation('fixture.video.v1', $providerOutput, Support::uuid()); check(false, 'provider polling cannot change the operation identifier'); }
+catch (UnexpectedValueException) { check(true, 'provider polling cannot change the operation identifier'); }
+foreach ([
+    ['mode' => 'provider_output', 'modelId' => 'fixture.video.v1', 'outcome' => 'media_ready', 'assets' => [], 'rawResponse' => 'secret'],
+    ['mode' => 'provider_output', 'modelId' => 'fixture.video.v1', 'outcome' => 'media_ready', 'assets' => [['mediaId' => Support::uuid(), 'mime' => 'video/mp4', 'byteSize' => 10, 'sha256' => str_repeat('d', 64), 'url' => 'https://provider.invalid/output']]],
+] as $unsafeResult) {
+    try { new Hotice\ProviderOperation(Support::uuid(), 'succeeded', $unsafeResult); check(false, 'raw provider response and URLs rejected from normalized result'); }
+    catch (InvalidArgumentException) { check(true, 'raw provider response and URLs rejected from normalized result'); }
+}
+try { new Hotice\ProviderOperation(Support::uuid(), 'processing', ['rawResponse' => 'secret']); check(false, 'nonterminal operations cannot return result payloads'); }
+catch (InvalidArgumentException) { check(true, 'nonterminal operations cannot return result payloads'); }
+try { $mockProvider->submit($providerRequest, str_repeat('b', 64)); $changedRequest = new Hotice\ProviderRequest(Hotice\MockProviderAdapter::MODEL_ID, 'different prompt', [], ['simulate' => 'success', 'attempt' => 1]); $mockProvider->submit($changedRequest, str_repeat('a', 64)); check(false, 'provider idempotency key request binding'); } catch (ApiError $e) { check($e->status === 409, 'provider idempotency key request binding'); }
+$retryable = $mockProvider->submit(new Hotice\ProviderRequest(Hotice\MockProviderAdapter::MODEL_ID, '', [], ['simulate' => 'rate_limit_once', 'attempt' => 1]), str_repeat('c', 64));
+$mockProvider->poll($retryable->operationId);
+$retryable = $mockProvider->poll($retryable->operationId);
+check($retryable->status === 'failed' && $retryable->retryable && $retryable->errorCode === 'mock_rate_limited', 'mock provider returns retryable normalized error');
+$cancel = $mockProvider->submit(new Hotice\ProviderRequest(Hotice\MockProviderAdapter::MODEL_ID, '', [], ['simulate' => 'success', 'attempt' => 1]), str_repeat('d', 64));
+check($mockProvider->cancel($cancel->operationId)->status === 'cancelled', 'mock provider cancellation contract');
+try { new Hotice\ProviderRegistry([$mockProvider, new Hotice\MockProviderAdapter()]); check(false, 'duplicate model provider registration rejected'); } catch (InvalidArgumentException) { check(true, 'duplicate model provider registration rejected'); }
 check(Support::email(' A@EXAMPLE.COM ') === 'a@example.com', 'normalize email');
 try { Support::email('not-an-email'); check(false, 'invalid email rejected'); } catch (ApiError $e) { check($e->status === 422, 'invalid email'); }
 check(Support::secureFileName(str_repeat('a', 64)), 'valid storage name');

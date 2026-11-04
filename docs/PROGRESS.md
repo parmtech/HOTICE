@@ -2,7 +2,17 @@
 
 > **Continuing HOTICE on another model?** First read [CONTINUE_HERE.md](CONTINUE_HERE.md) for the verified repo state, product decisions, blockers, and ordered next steps. Refresh the current branch and Actions status; this checklist may lag behind newer commits.
 
-## Current verified snapshot — 26 October 2026
+## Latest verified snapshot — 4 November 2026
+
+- [x] Provider adapter capability/result safety work on PR #48 exact head `3bf0a321a9dafe7408aa253a8345cd1437a36c3f`; see [PR #48](https://github.com/parmtech/HOTICE/pull/48).
+- [x] PHP syntax/core plus MySQL/API/owner integration passed in [backend run 41744845221](https://github.com/parmtech/HOTICE/actions/runs/41744845221).
+- [x] Flutter analysis/unit/widget tests, Android debug APK build/artifact upload, and real Android emulator journey passed in [client run 41744845029](https://github.com/parmtech/HOTICE/actions/runs/41744845029).
+- [x] Android debug artifact `HOTICE-Android-v0.2.0-run655` was uploaded; SHA-256: `b1fa244fbd5a987999ac3778d67307e672311deac27b271d5f12a502e688d21c`; expires 18 November 2026.
+- [ ] Verify deployed Namecheap/cPanel staging and backup/restore/rollback; **owner-blocked** until staging access is provided.
+- [ ] Verify real provider keys, account/region entitlements, live job lifecycle, cost/usage and invoice reconciliation; **owner-blocked** until staging and provider accounts/keys are available.
+- [ ] Finish and verify all other [release gates in issue #33](https://github.com/parmtech/HOTICE/issues/33). Release remains **NOT READY TO PUBLISH**. No live provider or payment calls were made.
+
+### Earlier UI milestone verified — 26 October 2026
 - [x] **Flutter static analysis and widget tests passed** on the preview code branch: [Actions run 40201075329](https://github.com/parmtech/HOTICE/actions/runs/40201075329).
 - [x] A real Android **debug** APK was compiled and uploaded as artifact `HOTICE-Android-Preview-APK` in the same run. This does **not** mean a production-signed APK or device QA pass.
 - [x] Clear Normal Video / Music Video Studio mode switch with one freeform scene/story prompt in each mode.
@@ -26,7 +36,7 @@
 - [M4 — Stripe/PayPal/cards and credit ledger](https://github.com/parmtech/HOTICE/issues/4)
 - [M5 — Professional QA and release](https://github.com/parmtech/HOTICE/issues/5)
 
-**Verification note:** The early failing Actions run has been superseded. On 26 October 2026 Flutter static analysis/tests and the Android debug build passed on run 40201075329. Later editing commits need the latest Actions run checked separately.
+**Verification note:** The 26 October checks below describe that UI milestone. For the newest implementation and verification, use the dated snapshot above and re-check exact-head Actions before making claims.
 
 This checklist tracks source-level implementation separately from integration and release verification. A checked box means the specified source/UI task was written, **not** that it is production-ready.
 
