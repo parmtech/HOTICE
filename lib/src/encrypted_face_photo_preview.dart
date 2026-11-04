@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'face_reference_vault.dart';
@@ -25,6 +26,7 @@ class EncryptedFacePhotoPreview extends StatefulWidget {
     required this.height,
     required this.semanticLabel,
     this.fit = BoxFit.cover,
+    @visibleForTesting this.photoLoader,
   });
 
   final String path;
@@ -33,6 +35,9 @@ class EncryptedFacePhotoPreview extends StatefulWidget {
   final double height;
   final String semanticLabel;
   final BoxFit fit;
+
+  @visibleForTesting
+  final Future<Uint8List> Function(String path, String accountScope)? photoLoader;
 
   @override
   State<EncryptedFacePhotoPreview> createState() =>
@@ -57,9 +62,13 @@ class _EncryptedFacePhotoPreviewState extends State<EncryptedFacePhotoPreview> {
     }
   }
 
-  Future<Uint8List> _load() async =>
-      (await FaceReferenceVault.openOnDevice(accountScope: widget.accountScope))
-          .decryptPhoto(widget.path);
+  Future<Uint8List> _load() async {
+    final testLoader = widget.photoLoader;
+    if (testLoader != null) return testLoader(widget.path, widget.accountScope);
+    return (await FaceReferenceVault.openOnDevice(
+      accountScope: widget.accountScope,
+    )).decryptPhoto(widget.path);
+  }
 
   Widget _placeholder(IconData icon, {String? label}) => Semantics(
         label: label ?? widget.semanticLabel,
@@ -74,7 +83,11 @@ class _EncryptedFacePhotoPreviewState extends State<EncryptedFacePhotoPreview> {
   Widget build(BuildContext context) => SizedBox(
         width: widget.width,
         height: widget.height,
+        // A FutureBuilder retains its last snapshot while its future changes.
+        // Key it by the encrypted object and workspace so a workspace switch
+        // cannot briefly show the previous user's decrypted image.
         child: FutureBuilder<Uint8List>(
+          key: ValueKey('${widget.accountScope}:${widget.path}'),
           future: _photo,
           builder: (context, snapshot) {
             if (snapshot.hasError) {
