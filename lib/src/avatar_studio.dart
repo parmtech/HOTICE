@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'encrypted_face_photo_preview.dart';
 import 'smart_references.dart';
 import 'live_face_capture.dart';
 import 'face_capture_quality.dart';
@@ -638,68 +639,201 @@ class _AvatarsPageState extends State<AvatarsPage> {
     }
   }
 
+  void _viewFaceReference(BuildContext context, AvatarReference photo) {
+    final screenSize = MediaQuery.sizeOf(context);
+    final viewLabel = photo.view?.label ?? 'Unspecified view';
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        child: SizedBox(
+          width: screenSize.width * 0.82,
+          height: screenSize.height * 0.76,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Face reference · $viewLabel',
+                        style: Theme.of(dialogContext).textTheme.titleLarge,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close photo preview',
+                      onPressed: () => Navigator.pop(dialogContext),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Unverified reference · pinch or scroll to zoom'),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => InteractiveViewer(
+                      minScale: 1,
+                      maxScale: 4,
+                      child: EncryptedFacePhotoPreview(
+                        path: photo.localPath,
+                        accountScope: widget.store.selectedWorkspaceId,
+                        width: constraints.maxWidth,
+                        height: constraints.maxHeight,
+                        fit: BoxFit.contain,
+                        semanticLabel: '$viewLabel saved face reference',
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   void openProfile(StudioAvatar avatar) {
     final card = AvatarPromptComposer.identityCard(avatar);
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(avatar.name, style: Theme.of(ctx).textTheme.headlineMedium),
-                const SizedBox(height: 8),
-                const Text('Reusable character identity card · Text-only demo'),
-                const SizedBox(height: 16),
-                SelectableText(card),
-                const SizedBox(height: 16),
-                const DemoNotice(
-                  'HOTICE can add these notes to demo video prompts. Real 3D scanning, facial matching and provider-specific references are not active.',
-                ),
-                const SizedBox(height: 14),
-                Text('Saved face references: '
-                    '${widget.store.avatarPackFor(avatar.name).assets.length} '
-                    '(encrypted on this device)'),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: () => exportActorBackup(avatar),
-                  icon: const Icon(Icons.lock_outline),
-                  label: const Text('Create encrypted portable backup'),
-                ),
-                for (final photo in widget.store.avatarPackFor(avatar.name).assets)
-                  ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.photo_outlined),
-                    title: Text(photo.view?.label ?? 'Reference'),
-                    subtitle: const Text('Unverified face photo'),
-                    trailing: IconButton(
-                      tooltip: 'Remove this reference',
-                      icon: const Icon(Icons.delete_outline),
-                      onPressed: () {
-                        widget.store.removeAvatarReference(avatar.name, photo.id);
-                        Navigator.pop(ctx);
-                      },
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final references = widget.store.avatarPackFor(avatar.name).assets;
+          return SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(ctx).height * 0.88,
+              ),
+              child: CustomScrollView(
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
+                    sliver: SliverList(
+                      delegate: SliverChildListDelegate([
+                        Text(avatar.name,
+                            style: Theme.of(ctx).textTheme.headlineMedium),
+                        const SizedBox(height: 8),
+                        const Text(
+                            'Reusable character identity card · Text-only demo'),
+                        const SizedBox(height: 16),
+                        SelectableText(card),
+                        const SizedBox(height: 16),
+                        const DemoNotice(
+                          'HOTICE can add these notes to demo video prompts. Real 3D scanning, facial matching and provider-specific references are not active.',
+                        ),
+                        const SizedBox(height: 14),
+                        Text('Saved face references: ${references.length} '
+                            '(encrypted on this device)'),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: () => exportActorBackup(avatar),
+                          icon: const Icon(Icons.lock_outline),
+                          label: const Text('Create encrypted portable backup'),
+                        ),
+                      ]),
                     ),
                   ),
-                const SizedBox(height: 14),
-                FilledButton.icon(
-                  onPressed: () async {
-                    await Clipboard.setData(ClipboardData(text: card));
-                    if (ctx.mounted) Navigator.pop(ctx);
-                  },
-                  icon: const Icon(Icons.copy_rounded),
-                  label: const Text('Copy identity notes'),
-                ),
-              ],
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          final photo = references[index];
+                          final viewLabel =
+                              photo.view?.label ?? 'Unspecified view';
+                          return ListTile(
+                            key: ValueKey(photo.id),
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: Tooltip(
+                              message:
+                                  'View ${photo.view?.label ?? 'saved'} face reference',
+                              child: InkWell(
+                                onTap: () => _viewFaceReference(ctx, photo),
+                                borderRadius: BorderRadius.circular(8),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: EncryptedFacePhotoPreview(
+                                    path: photo.localPath,
+                                    accountScope:
+                                        widget.store.selectedWorkspaceId,
+                                    width: 56,
+                                    height: 68,
+                                    semanticLabel:
+                                        '$viewLabel saved face reference',
+                                  ),
+                                ),
+                              ),
+                            ),
+                            title: Text(viewLabel),
+                            subtitle: const Text('Unverified face photo'),
+                            trailing: IconButton(
+                              tooltip: 'Remove this reference',
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () async {
+                                final confirmed = await showDialog<bool>(
+                                      context: ctx,
+                                      builder: (dialogContext) => AlertDialog(
+                                        title: Text(
+                                            'Remove $viewLabel reference from ${avatar.name}?'),
+                                        content: Text(
+                                          'This removes the $viewLabel face reference from ${avatar.name}. HOTICE deletes only its encrypted copy; your imported original photo stays unchanged.',
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(
+                                                dialogContext, false),
+                                            child: const Text('Keep reference'),
+                                          ),
+                                          FilledButton(
+                                            onPressed: () => Navigator.pop(
+                                                dialogContext, true),
+                                            child:
+                                                const Text('Remove reference'),
+                                          ),
+                                        ],
+                                      ),
+                                    ) ??
+                                    false;
+                                if (!ctx.mounted || !confirmed) return;
+                                if (widget.store.removeAvatarReference(
+                                  avatar.name,
+                                  photo.id,
+                                )) {
+                                  setSheetState(() {});
+                                }
+                              },
+                            ),
+                          );
+                        },
+                        childCount: references.length,
+                      ),
+                    ),
+                  ),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(24, 14, 24, 24),
+                    sliver: SliverToBoxAdapter(
+                      child: FilledButton.icon(
+                        onPressed: () async {
+                          await Clipboard.setData(ClipboardData(text: card));
+                          if (ctx.mounted) Navigator.pop(ctx);
+                        },
+                        icon: const Icon(Icons.copy_rounded),
+                        label: const Text('Copy identity notes'),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }

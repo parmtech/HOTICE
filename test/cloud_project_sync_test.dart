@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hotice/src/state.dart';
 import 'package:hotice/src/video_models.dart';
+import 'package:hotice/src/smart_references.dart';
 
 void main() {
   test(
@@ -14,6 +15,19 @@ void main() {
       'Cinematic',
       identityNotes: 'private identity detail',
     );
+    store.addAvatarReference(
+      'Nova',
+      AvatarReference(
+        id: '11111111-1111-4111-8111-111111111111',
+        ownerName: 'Nova',
+        role: ReferenceRole.avatar,
+        format: ReferenceFormat.image,
+        mimeType: 'image/jpeg',
+        localPath: 'device-only-private-face-photo.aes',
+        view: FaceView.front,
+        ownedTemporaryFile: true,
+      ),
+    );
     store.queueDraft(
       GenerationDraft(
         projectId: selected,
@@ -25,6 +39,7 @@ void main() {
         createdAt: DateTime.utc(2026),
         avatarName: 'Nova',
         requestedAttachments: const [VideoAttachment.image],
+        selectedReferenceIds: const ['11111111-1111-4111-8111-111111111111'],
         referenceFiles: const [
           SceneReference(
             type: VideoAttachment.image,
@@ -42,11 +57,15 @@ void main() {
     expect(draft['prompt'], 'A moonlit city');
     expect(draft['requestedAttachments'], ['image']);
     expect(draft['referenceFiles'], isEmpty);
+    expect(draft['selectedReferenceIds'], isEmpty);
     expect(cloud['avatars'], [
       {'name': 'Nova', 'style': 'Cinematic'},
     ]);
     expect(cloud.toString(), isNot(contains('private identity detail')));
     expect(cloud.toString(), isNot(contains('private-name.png')));
+    expect(cloud.toString(), isNot(contains('avatarReferences')));
+    expect(cloud.toString(), isNot(contains('device-only-private-face-photo')));
+    expect(cloud.toString(), isNot(contains('Unspecified view')));
     store.dispose();
   });
 

@@ -1,10 +1,18 @@
 # HOTICE — CURRENT HANDOFF (4 NOVEMBER 2026)
 
+## Latest continuation update — 4 November 2026
+
+On `feat/avatar-reference-gallery`, PR #89, code head `8d255b35474d787ec134bd8f3357048e6149feda` keys the encrypted photo preview subtree by workspace and file path. This prevents Flutter's retained `FutureBuilder` snapshot from briefly showing a decrypted reference from the previous workspace while another workspace loads. `flutter test --no-pub` passes all 144 tests; `flutter analyze --no-pub --no-fatal-infos` passes with existing informational lints. Exact-head CI [41752838197](https://github.com/parmtech/HOTICE/actions/runs/41752838197): inventory, static web/Chromium and Flutter analysis/tests passed; APK and emulator jobs were still running at last check. Keep the PR draft and release status NOT READY TO PUBLISH.
+
 **Canonical repo:** https://github.com/parmtech/HOTICE
 **Integration PR:** [#86](https://github.com/parmtech/HOTICE/pull/86) remains draft on PR #79. Current portable actor recovery is draft [PR #87](https://github.com/parmtech/HOTICE/pull/87), branch `feat/avatar-reference-portable-backup`, head `f9318d57a0b649bab22747bf6591a98763a33996`; it targets PR #86. Re-fetch exact heads and CI before proceeding.
 **Source PRs:** #32 and #79 remain open and unchanged; neither is merged into main.
 **Scope:** Integrate the consented 2D capture vault and smart reference planner with PR #79’s encrypted local project archive.
 **Master product contract:** [HOTICE_HANDOFF.md](https://github.com/parmtech/HOTICE/blob/docs/ready-to-publish-release-gates/HOTICE_HANDOFF.md), currently proposed in open PR #34. Its section W sets the dependency-safe packets; its section X defines release gates.
+
+**Active continuation branch (4 November):** worktree branch `feat/avatar-reference-gallery`, draft child PR [#89](https://github.com/parmtech/HOTICE/pull/89) based on PR #88. Current code head `da9e68a09b9122497ce12eba039351695a8ce958` includes encrypted local preview thumbnails, an enlarged zoom viewer, and a lazy sliver gallery so only visible/cached rows decrypt previews; preview decoding is bounded to rendered edge × device pixel ratio (maximum 2048 px). Reference deletion is confirmed with a dialog naming the precise view and Actor; the profile stays open and refreshes. Cloud snapshots exclude locally selected face-reference IDs, reference files and Actor identity notes. Tests cover the maximum 16-reference lazy list, enlarged locked-safe viewer, named deletion/cancellation and cloud privacy. Local full Flutter suite passes all 143 tests; targeted analysis has no errors (9 informational lints in `avatar_studio.dart`) and `git diff --check` passes. Exact-head workflow [41738331740](https://github.com/parmtech/HOTICE/actions/runs/41738331740) is in progress; inspect every job before claiming full CI. PR #89 remains draft; physical-device vault/lifecycle/accessibility QA is outstanding and no provider calls or uploads were made. No PR reviews had been submitted at last check.
+
+Continue from this branch without discarding or rebasing other worktrees. Read the master contract in PR #34 before starting another packet; preserve the #32/#79 source work and #86/#87/#88/#89 stack. This branch has no provider calls or photo uploads. Physical-device vault/lifecycle and accessibility checks remain required. Product release stays **NOT READY TO PUBLISH**.
 
 Read the NEW authoritative contracts before proceeding:
 - [AI Model Compatibility](API_MODEL_COMPATIBILITY.md): official provider docs, retired models, strict role/duration/ratio rules, security, and implementation gaps.

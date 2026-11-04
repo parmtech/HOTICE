@@ -496,7 +496,11 @@ class HotIceStore extends ChangeNotifier {
         (source[key] as List).cast<Map<String, dynamic>>();
     final drafts = rows('drafts')
         .where((row) => row['projectId'] == projectId)
-        .map((row) => <String, dynamic>{...row, 'referenceFiles': <Object>[]})
+        .map((row) => <String, dynamic>{
+              ...row,
+              'referenceFiles': <Object>[],
+              'selectedReferenceIds': <String>[],
+            })
         .toList();
     final names = <String>{
       for (final draft in drafts)
