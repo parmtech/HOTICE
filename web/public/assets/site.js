@@ -517,6 +517,7 @@
   let mockJobsRefreshInFlight = false;
   let mockJobsNeedPolling = false;
   let mockJobsRefreshFailures = 0;
+  let mockQuoteGeneration = 0;
   const mockJobActiveStatuses = new Set(['queued', 'processing']);
   const mockJobPollIntervalMs = 5000;
 
@@ -556,20 +557,25 @@
 
   async function quoteMockJob() {
     if (!accountToken || !mockGenerationEnabled) return;
+    const requestToken = accountToken;
+    const requestGeneration = ++mockQuoteGeneration;
     currentMockQuote = null;
     refreshMockControls();
     const prompt = get('scenePrompt')?.value.trim() || '';
     if (!prompt) return mockJobStatus('Write a scene prompt before requesting a quote.');
     mockJobStatus('Requesting a simulated-credit quote for this prompt…');
     try {
-      const response = await accountApi('/v1/jobs/quote', {method: 'POST', token: accountToken,
+      const response = await accountApi('/v1/jobs/quote', {method: 'POST', token: requestToken,
         body: {request: {modelId: 'hotice.mock.video.v1', prompt}}});
+      if (accountToken !== requestToken || requestGeneration !== mockQuoteGeneration ||
+          get('scenePrompt')?.value.trim() !== prompt) return;
       if (typeof response.quoteToken !== 'string' || !Number.isInteger(response.credits) ||
           response.modelId !== 'hotice.mock.video.v1') throw new Error('Invalid mock quote.');
       currentMockQuote = {token: response.quoteToken, prompt, credits: response.credits};
       refreshMockControls();
       mockJobStatus('Mock dry run quote: ' + response.credits + ' simulated credits. No money is charged. Quote expires ' + response.expiresAt + '.');
     } catch (error) {
+      if (accountToken !== requestToken || requestGeneration !== mockQuoteGeneration) return;
       currentMockQuote = null;
       refreshMockControls();
       mockJobStatus(error.status === 503 ? 'Mock generation is disabled on this server.' :
@@ -579,6 +585,7 @@
 
   async function submitMockJob() {
     if (!accountToken || !mockGenerationEnabled || !currentMockQuote) return;
+    const requestToken = accountToken;
     const quote = currentMockQuote;
     const prompt = get('scenePrompt')?.value.trim() || '';
     if (prompt !== quote.prompt) {
@@ -593,9 +600,10 @@
     if (submit) submit.disabled = true;
     mockJobStatus('Submitting the mock dry run…');
     try {
-      const response = await accountApi('/v1/jobs', {method: 'POST', token: accountToken,
+      const response = await accountApi('/v1/jobs', {method: 'POST', token: requestToken,
         extraHeaders: {'Idempotency-Key': 'web-' + crypto.randomUUID()},
         body: {quoteToken: quote.token, request: {modelId: 'hotice.mock.video.v1', prompt}}});
+      if (accountToken !== requestToken) return;
       if (!response.job || typeof response.job.id !== 'string' || typeof response.job.status !== 'string') {
         throw new Error('Invalid mock job response.');
       }
@@ -606,6 +614,7 @@
       await renderMockJobs([response.job]);
       scheduleMockJobsRefresh(2000);
     } catch (error) {
+      if (accountToken !== requestToken) return;
       mockJobStatus(error.status === 402 ? 'Not enough simulated credits for this mock job.' :
         'The server could not confirm job submission. Refresh your jobs before trying again.');
     } finally {
@@ -679,6 +688,7 @@
     }
   });
   get('scenePrompt')?.addEventListener('input', () => {
+    mockQuoteGeneration += 1;
     if (currentMockQuote && get('scenePrompt').value.trim() !== currentMockQuote.prompt) {
       currentMockQuote = null;
       refreshMockControls();
@@ -1016,6 +1026,7 @@
   refreshCloudControls();
 
   function showAccountForm(message) {
+    mockQuoteGeneration += 1;
     stopMockJobsPolling();
     accountToken = null;
     mockGenerationEnabled = false;
@@ -1087,6 +1098,7 @@
 
   get('accountSignOut')?.addEventListener('click', async () => {
     const token = accountToken;
+    mockQuoteGeneration += 1;
     stopMockJobsPolling();
     accountToken = null;
     mockGenerationEnabled = false;
