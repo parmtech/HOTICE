@@ -71,7 +71,9 @@ $providerOutput = new Hotice\ProviderOperation(Support::uuid(), 'succeeded', [
 ]);
 check($providerOutput->status === 'succeeded' && count($providerOutput->result['assets']) === 1, 'normalized provider result accepts private HOTICE media metadata');
 $capabilityRegistry->validateOperation('fixture.video.v1', $providerOutput);
-try { $capabilityRegistry->validateOperation('hotice.mock.video.v1', $providerOutput); check(false, 'provider result cannot change the requested model'); }
+try { $capabilityRegistry->validateOperation('fixture.video.v1', new Hotice\ProviderOperation(Support::uuid(), 'succeeded', [
+    'mode' => 'provider_output', 'modelId' => 'hotice.mock.video.v1', 'outcome' => 'media_ready', 'assets' => [],
+])); check(false, 'provider result cannot change the requested model'); }
 catch (UnexpectedValueException) { check(true, 'provider result cannot change the requested model'); }
 try { $capabilityRegistry->validateOperation('fixture.video.v1', $providerOutput, Support::uuid()); check(false, 'provider polling cannot change the operation identifier'); }
 catch (UnexpectedValueException) { check(true, 'provider polling cannot change the operation identifier'); }
