@@ -56,12 +56,15 @@ class _MusicVideoStudioPageState extends State<MusicVideoStudioPage> {
   final story = TextEditingController();
   final Map<String, String> _unsavedStories = {};
   final Map<String, List<StoryboardShot>> _unsavedShots = {};
+  final Map<String, List<ManualMusicCue>> _unsavedCues = {};
   final Map<String, String> _unsavedStyles = {};
   final Map<String, String> _unsavedAvatars = {};
   String? projectId;
   String selectedStyle = 'Cinematic realism';
   String selectedAvatar = 'None';
   List<StoryboardShot> shots = [];
+  List<ManualMusicCue> manualCues = [];
+  Duration? _songDuration;
 
   static const styles = [
     'Cinematic realism',
@@ -86,10 +89,12 @@ class _MusicVideoStudioPageState extends State<MusicVideoStudioPage> {
     if (projectId != null) {
       _unsavedStories[projectId!] = story.text;
       _unsavedShots[projectId!] = List<StoryboardShot>.of(shots);
+      _unsavedCues[projectId!] = List<ManualMusicCue>.of(manualCues);
       _unsavedStyles[projectId!] = selectedStyle;
       _unsavedAvatars[projectId!] = selectedAvatar;
     }
     projectId = next;
+    _songDuration = null;
     // Visual style and recurring Actor belong to the project just like its
     // story. Never carry a different film's creative settings across tabs.
     selectedStyle = next == null ? styles.first : (_unsavedStyles[next] ?? styles.first);
@@ -99,6 +104,11 @@ class _MusicVideoStudioPageState extends State<MusicVideoStudioPage> {
         ? <StoryboardShot>[]
         : List<StoryboardShot>.of(
             _unsavedShots[next] ?? const <StoryboardShot>[],
+          );
+    manualCues = next == null
+        ? <ManualMusicCue>[]
+        : List<ManualMusicCue>.of(
+            _unsavedCues[next] ?? const <ManualMusicCue>[],
           );
   }
 
@@ -186,6 +196,7 @@ class _MusicVideoStudioPageState extends State<MusicVideoStudioPage> {
       story.text = plan.storyBrief;
       // Copy instead of mutating the previously saved snapshot.
       shots = List<StoryboardShot>.of(plan.shots);
+      manualCues = List<ManualMusicCue>.of(plan.manualCues);
     });
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Storyboard loaded. Scroll up to edit and save a new draft.')),
@@ -218,14 +229,145 @@ class _MusicVideoStudioPageState extends State<MusicVideoStudioPage> {
       avatarName: avatar,
       shots: List.unmodifiable(shots),
       createdAt: DateTime.now(),
+      manualCues: List.unmodifiable(manualCues),
     ));
     // The editor can be embedded on its own during testing or future routing.
     // Do not rely solely on an AnimatedBuilder in the parent to refresh the
     // saved-storyboards list.
     if (mounted) setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Story draft saved locally. No render job or credits used.')),
+      const SnackBar(content: Text('Storyboard saved for this session. No render job or credits used.')),
     );
+  }
+
+  Future<void> editManualCue({int? index}) async {
+    final existing = index == null ? null : manualCues[index];
+    final text = TextEditingController(text: existing?.text ?? '');
+    final start = TextEditingController(
+      text: existing == null ? '0' : _seconds(existing.startMilliseconds),
+    );
+    final defaultEnd = _songDuration == null
+        ? 5000
+        : _songDuration!.inMilliseconds.clamp(1, 5000);
+    final end = TextEditingController(
+      text: existing == null ? _seconds(defaultEnd) : _seconds(existing.endMilliseconds),
+    );
+    String? error;
+    ManualMusicCue? result;
+    try {
+      result = await showDialog<ManualMusicCue>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text(existing == null ? 'Add manual music cue' : 'Edit music cue'),
+            content: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                TextField(
+                  controller: text,
+                  autofocus: true,
+                  maxLength: 1000,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Lyrics or section note',
+                    hintText: 'Type the words or name an instrumental section',
+                  ),
+                ),
+                Row(children: [
+                  Expanded(child: TextField(
+                    controller: start,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'Start (seconds)'),
+                  )),
+                  const SizedBox(width: 12),
+                  Expanded(child: TextField(
+                    controller: end,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'End (seconds)'),
+                  )),
+                ]),
+                if (_songDuration != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Loaded song length: ${_cueClock(_songDuration!.inMilliseconds)}'),
+                  ),
+                if (error != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  ),
+              ]),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: () {
+                  final startMs = _milliseconds(start.text);
+                  final endMs = _milliseconds(end.text);
+                  if (startMs == null || endMs == null || endMs <= startMs) {
+                    setDialogState(() => error = 'Enter a start and a later end time in seconds.');
+                    return;
+                  }
+                  if (_songDuration != null && endMs > _songDuration!.inMilliseconds) {
+                    setDialogState(() => error = 'The cue must end within the loaded song.');
+                    return;
+                  }
+                  final cueText = text.text.trim();
+                  if (cueText.isEmpty || cueText.length > 1000) {
+                    setDialogState(() => error = 'Add a short lyric or section note.');
+                    return;
+                  }
+                  Navigator.pop(dialogContext, ManualMusicCue(
+                    startMilliseconds: startMs,
+                    endMilliseconds: endMs,
+                    text: cueText,
+                  ));
+                },
+                child: Text(existing == null ? 'Add cue' : 'Save cue'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      // The dialog route is removed on a later frame than Navigator.pop.
+      await WidgetsBinding.instance.endOfFrame;
+      text.dispose();
+      start.dispose();
+      end.dispose();
+    }
+    if (result == null || !mounted) return;
+    setState(() {
+      if (index == null) {
+        manualCues = [...manualCues, result!]
+          ..sort((a, b) => a.startMilliseconds.compareTo(b.startMilliseconds));
+      } else if (index >= 0 && index < manualCues.length) {
+        manualCues[index] = result!;
+        manualCues.sort((a, b) => a.startMilliseconds.compareTo(b.startMilliseconds));
+      }
+    });
+  }
+
+  void removeManualCue(int index) {
+    if (index < 0 || index >= manualCues.length) return;
+    setState(() => manualCues.removeAt(index));
+  }
+
+  static int? _milliseconds(String value) {
+    final seconds = double.tryParse(value.trim());
+    if (seconds == null || !seconds.isFinite || seconds < 0 || seconds > 86400) return null;
+    return (seconds * 1000).round();
+  }
+
+  static String _seconds(int milliseconds) => (milliseconds / 1000)
+      .toStringAsFixed(3)
+      .replaceFirst(RegExp(r'0+$'), '')
+      .replaceFirst(RegExp(r'\.$'), '');
+
+  static String _cueClock(int milliseconds) {
+    final seconds = milliseconds ~/ 1000;
+    final remainder = (milliseconds % 1000).toString().padLeft(3, '0');
+    return '${MusicStoryboardTimeline.clock(seconds)}.$remainder';
   }
 
   @override
@@ -250,7 +392,7 @@ class _MusicVideoStudioPageState extends State<MusicVideoStudioPage> {
             subtitle: 'Plan the story, arrange shots, and shape the visual direction.',
           ),
           const DemoNotice(
-            'Offline UI preview. Song upload, lyrics and word timing, beat detection, script AI, lip-sync and video export require later integrations.',
+            'Offline UI preview. You can listen to a song on this device and add manual cues. Cloud upload, automatic lyric timing, beat detection, script AI, lip-sync and final video export require later integrations.',
           ),
           const SizedBox(height: 17),
           LayoutBuilder(builder: (context, size) {
@@ -337,6 +479,9 @@ class _MusicVideoStudioPageState extends State<MusicVideoStudioPage> {
             final audio = MusicSongPreviewPanel(
               key: ValueKey('song-preview-$projectId'),
               active: widget.audioActive,
+              onDurationChanged: (duration) {
+                if (mounted) setState(() => _songDuration = duration);
+              },
             );
             if (wide) {
               return Row(
@@ -441,6 +586,57 @@ class _MusicVideoStudioPageState extends State<MusicVideoStudioPage> {
             ),
           if (shots.isNotEmpty) ...[
             const SizedBox(height: 10),
+            Text('Manual lyric & section cues',
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 6),
+            const Text('Set timestamps yourself while listening. HOTICE has not transcribed the song or detected its beats.'),
+            if (_songDuration != null && manualCues.any((cue) =>
+                cue.endMilliseconds > _songDuration!.inMilliseconds))
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Some cues extend beyond this song. Edit their times or choose a longer track.',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              key: const ValueKey('add-manual-music-cue'),
+              onPressed: manualCues.length >= 500 ? null : () => editManualCue(),
+              icon: const Icon(Icons.add_rounded),
+              label: Text(manualCues.length >= 500 ? 'Cue limit reached' : 'Add timed cue'),
+            ),
+            if (manualCues.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text('No manual lyric or section cues yet.'),
+              ),
+            for (var cueIndex = 0; cueIndex < manualCues.length; cueIndex++)
+              StudioPanel(
+                key: ValueKey('manual-music-cue-$cueIndex'),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(manualCues[cueIndex].text),
+                  subtitle: Text(
+                    '${_cueClock(manualCues[cueIndex].startMilliseconds)}–'
+                    '${_cueClock(manualCues[cueIndex].endMilliseconds)} · manual timing',
+                  ),
+                  trailing: Wrap(spacing: 0, children: [
+                    IconButton(
+                      tooltip: 'Edit cue ${cueIndex + 1}',
+                      onPressed: () => editManualCue(index: cueIndex),
+                      icon: const Icon(Icons.edit_outlined),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove cue ${cueIndex + 1}',
+                      onPressed: () => removeManualCue(cueIndex),
+                      icon: const Icon(Icons.delete_outline),
+                    ),
+                  ]),
+                ),
+              ),
+            const SizedBox(height: 10),
             PrimaryButton(
               label: 'Save storyboard draft',
               icon: Icons.save_alt_rounded,
@@ -448,7 +644,7 @@ class _MusicVideoStudioPageState extends State<MusicVideoStudioPage> {
             ),
           ],
           const SizedBox(height: 22),
-          Text('Saved music storyboards', style: Theme.of(context).textTheme.titleLarge),
+          Text('Saved music storyboards · this session', style: Theme.of(context).textTheme.titleLarge),
           if (!widget.store.musicPlans.any((plan) => plan.projectId == projectId))
             const Padding(
               padding: EdgeInsets.only(top: 8),

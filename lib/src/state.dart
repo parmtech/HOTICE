@@ -48,6 +48,19 @@ class StoryboardShot {
   const StoryboardShot(this.title, this.description, this.estimatedSeconds);
 }
 
+/// A user-timed lyric or section note, not an automatic transcription.
+class ManualMusicCue {
+  final int startMilliseconds;
+  final int endMilliseconds;
+  final String text;
+
+  const ManualMusicCue({
+    required this.startMilliseconds,
+    required this.endMilliseconds,
+    required this.text,
+  });
+}
+
 /// A text-only offline planning draft. There is no audio or AI analysis.
 class MusicVideoPlan {
   final String projectId;
@@ -55,6 +68,7 @@ class MusicVideoPlan {
   final String visualStyle;
   final String avatarName;
   final List<StoryboardShot> shots;
+  final List<ManualMusicCue> manualCues;
   final DateTime createdAt;
   const MusicVideoPlan({
     required this.projectId,
@@ -63,6 +77,7 @@ class MusicVideoPlan {
     required this.avatarName,
     required this.shots,
     required this.createdAt,
+    this.manualCues = const [],
   });
 }
 
@@ -336,6 +351,13 @@ class HotIceStore extends ChangeNotifier {
         shot.description.trim().isEmpty)) {
       throw StateError('Storyboard shots require a description and a valid duration.');
     }
+    if (plan.manualCues.length > 500 || plan.manualCues.any((cue) =>
+        cue.startMilliseconds < 0 ||
+        cue.endMilliseconds <= cue.startMilliseconds ||
+        cue.endMilliseconds > 24 * 60 * 60 * 1000 ||
+        cue.text.trim().isEmpty || cue.text.trim().length > 1000)) {
+      throw StateError('Manual music cues require valid times and text.');
+    }
     // Store a detached immutable snapshot, not a caller-owned mutable List.
     // Otherwise editing an unsaved storyboard can silently rewrite history.
     musicPlans.insert(0, MusicVideoPlan(
@@ -344,6 +366,7 @@ class HotIceStore extends ChangeNotifier {
       visualStyle: plan.visualStyle,
       avatarName: plan.avatarName,
       shots: List<StoryboardShot>.unmodifiable(plan.shots),
+      manualCues: List<ManualMusicCue>.unmodifiable(plan.manualCues),
       createdAt: plan.createdAt,
     ));
     notifyListeners();

@@ -365,6 +365,47 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('manual lyric cues can be added, edited and saved with a plan',
+      (tester) async {
+    final store = HotIceStore();
+    addTearDown(store.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: MusicVideoStudioPage(store: store)),
+    ));
+    await tester.pumpAndSettle();
+    final story = find.widgetWithText(TextField, 'Describe your music video');
+    await tester.enterText(story, 'A singer walks toward sunrise');
+    await tester.ensureVisible(find.text('Preview storyboard'));
+    await tester.tap(find.text('Preview storyboard'));
+    await tester.pumpAndSettle();
+    final add = find.byKey(const ValueKey('add-manual-music-cue'));
+    await tester.ensureVisible(add);
+    await tester.tap(add);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Lyrics or section note'), 'Hold on through the night');
+    await tester.enterText(find.widgetWithText(TextField, 'Start (seconds)'), '1.25');
+    await tester.enterText(find.widgetWithText(TextField, 'End (seconds)'), '3.5');
+    await tester.tap(find.text('Add cue'));
+    await tester.pumpAndSettle();
+    expect(find.text('00:01.250–00:03.500 · manual timing'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Save storyboard draft'));
+    await tester.tap(find.text('Save storyboard draft'));
+    await tester.pumpAndSettle();
+    expect(store.musicPlans.single.manualCues.single.text, 'Hold on through the night');
+    expect(store.musicPlans.single.manualCues.single.startMilliseconds, 1250);
+
+    await tester.tap(find.byTooltip('Edit cue 1'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Lyrics or section note'), 'Edited lyric');
+    await tester.tap(find.text('Save cue'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edited lyric'), findsOneWidget);
+    expect(store.musicPlans.single.manualCues.single.text, 'Hold on through the night',
+        reason: 'unsaved edits must not rewrite an earlier saved plan');
+    expect(tester.takeException(), isNull);
+  });
+
   test('music video drafts are isolated by profile and reject foreign projects', () {
     final store = HotIceStore();
     final plan = MusicVideoPlan(
@@ -450,6 +491,35 @@ void main() {
       avatarName: 'None',
       shots: const [StoryboardShot('Bad', '', 0)],
       createdAt: DateTime(2026, 10, 27),
+    )), throwsStateError);
+  });
+
+  test('saved storyboards snapshot and validate caller-owned manual cues', () {
+    final store = HotIceStore();
+    addTearDown(store.dispose);
+    final cues = <ManualMusicCue>[
+      const ManualMusicCue(startMilliseconds: 1000, endMilliseconds: 2500, text: 'First lyric'),
+    ];
+    store.saveMusicPlan(MusicVideoPlan(
+      projectId: 'demo-film',
+      storyBrief: 'Music video',
+      visualStyle: 'Cinematic realism',
+      avatarName: 'None',
+      shots: const [StoryboardShot('Opening', 'A quiet start', 6)],
+      createdAt: DateTime(2026, 10, 27),
+      manualCues: cues,
+    ));
+    cues.clear();
+    expect(store.musicPlans.single.manualCues.single.text, 'First lyric');
+    expect(() => store.musicPlans.single.manualCues.clear(), throwsUnsupportedError);
+    expect(() => store.saveMusicPlan(MusicVideoPlan(
+      projectId: 'demo-film',
+      storyBrief: 'Music video',
+      visualStyle: 'Cinematic realism',
+      avatarName: 'None',
+      shots: const [StoryboardShot('Opening', 'A quiet start', 6)],
+      createdAt: DateTime(2026, 10, 27),
+      manualCues: const [ManualMusicCue(startMilliseconds: 3000, endMilliseconds: 2000, text: 'Invalid cue')],
     )), throwsStateError);
   });
 
@@ -563,6 +633,18 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    Future<void> addCue(String text) async {
+      final add = find.byKey(const ValueKey('add-manual-music-cue'));
+      await tester.ensureVisible(add);
+      await tester.tap(add);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextField, 'Lyrics or section note'), text);
+      await tester.enterText(find.widgetWithText(TextField, 'Start (seconds)'), '1');
+      await tester.enterText(find.widgetWithText(TextField, 'End (seconds)'), '2');
+      await tester.tap(find.text('Add cue'));
+      await tester.pumpAndSettle();
+    }
+
     await openProject('demo-film');
     final field = find.widgetWithText(TextField, 'Describe your music video');
     await tester.enterText(field, 'First music story');
@@ -570,6 +652,7 @@ void main() {
     await tester.ensureVisible(preview);
     await tester.tap(preview);
     await tester.pumpAndSettle();
+    await addCue('First project lyric');
     expect(find.text('Opening'), findsOneWidget);
     final anime = find.widgetWithText(ChoiceChip, 'Anime');
     final fantasy = find.widgetWithText(ChoiceChip, 'Fantasy');
@@ -585,7 +668,12 @@ void main() {
     expect(tester.widget<ChoiceChip>(cinematic).selected, isTrue);
     expect(tester.widget<TextField>(field).controller!.text, isEmpty);
     expect(find.text('Opening'), findsNothing);
+    expect(find.text('First project lyric'), findsNothing);
     await tester.enterText(field, 'Second music story');
+    await tester.ensureVisible(find.text('Preview storyboard'));
+    await tester.tap(find.text('Preview storyboard'));
+    await tester.pumpAndSettle();
+    await addCue('Second project lyric');
     await tester.ensureVisible(fantasy);
     await tester.tap(fantasy);
     await tester.pumpAndSettle();
@@ -593,12 +681,16 @@ void main() {
     expect(tester.widget<TextField>(field).controller!.text,
         'First music story');
     expect(find.text('Opening'), findsOneWidget);
+    expect(find.text('First project lyric'), findsOneWidget);
+    expect(find.text('Second project lyric'), findsNothing);
     expect(tester.widget<ChoiceChip>(anime).selected, isTrue);
     expect(tester.widget<ChoiceChip>(fantasy).selected, isFalse);
 
     await openProject(second);
     expect(tester.widget<TextField>(field).controller!.text,
         'Second music story');
+    expect(find.text('Second project lyric'), findsOneWidget);
+    expect(find.text('First project lyric'), findsNothing);
     expect(tester.widget<ChoiceChip>(fantasy).selected, isTrue);
     expect(tester.takeException(), isNull);
   });

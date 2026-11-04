@@ -7,10 +7,15 @@ import 'design.dart';
 /// Local preview only. No audio bytes, file paths or cloud credentials are
 /// persisted to a HOTICE account; a different project gets a fresh panel.
 class MusicSongPreviewPanel extends StatefulWidget {
-  const MusicSongPreviewPanel({super.key, this.active = true});
+  const MusicSongPreviewPanel({
+    super.key,
+    this.active = true,
+    this.onDurationChanged,
+  });
 
   /// Only play when the music editor is the visible active studio.
   final bool active;
+  final ValueChanged<Duration?>? onDurationChanged;
 
   @override
   State<MusicSongPreviewPanel> createState() => _MusicSongPreviewPanelState();
@@ -116,6 +121,7 @@ class _MusicSongPreviewPanelState extends State<MusicSongPreviewPanel>
           _songBytes = fileBytes;
           _songLength = duration;
         });
+        widget.onDurationChanged?.call(duration);
         await previous?.dispose();
         _notice('Local song loaded for listening. No cloud upload or beat analysis.');
       } catch (_) {
@@ -137,6 +143,7 @@ class _MusicSongPreviewPanelState extends State<MusicSongPreviewPanel>
       _songBytes = null;
       _songLength = null;
     });
+    widget.onDurationChanged?.call(null);
     previous?.dispose();
   }
 

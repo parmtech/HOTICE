@@ -2,6 +2,15 @@
 
 > **Continuing HOTICE on another model?** First read [CONTINUE_HERE.md](CONTINUE_HERE.md) for the verified repo state, product decisions, blockers, and ordered next steps. Refresh the current branch and Actions status; this checklist may lag behind newer commits.
 
+## Music Video Studio cue editing — 4 November 2026
+- [x] Add editable, millisecond-based manual lyric/section cues with start/end validation, chronological ordering, add/edit/remove, cue-count/text bounds, and loaded-song duration checks.
+- [x] Keep unsaved cues project-isolated; include an immutable cue snapshot with a saved storyboard and restore it when reopening that plan.
+- [x] Label timing as manual, avoid implying automatic transcription/beat detection, and state that current storyboard saves last for the session only.
+- [x] Local `flutter test --no-pub` passes all 42 tests; `flutter analyze --no-pub --no-fatal-infos` passes with informational lint suggestions only; `git diff --check` passes.
+- [ ] Exact-head CI and real-device audio-session/input accessibility QA remain pending. No audio upload, transcription provider or render is enabled.
+
+Release remains **NOT READY TO PUBLISH**.
+
 ## Current verified snapshot — 26 October 2026
 - [x] **Flutter static analysis and widget tests passed** on the preview code branch: [Actions run 40201075329](https://github.com/parmtech/HOTICE/actions/runs/40201075329).
 - [x] A real Android **debug** APK was compiled and uploaded as artifact `HOTICE-Android-Preview-APK` in the same run. This does **not** mean a production-signed APK or device QA pass.
