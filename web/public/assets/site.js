@@ -341,14 +341,16 @@
       controls.append(open, earlier, later);
       if (clip.file) {
         const upload = make('button', 'tool', clip.cloudFileId ? 'Uploaded · scan pending' :
-          clip.uploading ? 'Cancel upload' : 'Upload selected clip');
+          clip.uploading ? 'Cancel upload' : clip.quotaChecking ? 'Checking storage…' : 'Upload selected clip');
         upload.type = 'button';
-        upload.disabled = Boolean(clip.cloudFileId || !clip.file || !accountToken ||
+        upload.disabled = Boolean(clip.cloudFileId || clip.quotaChecking || !clip.file || !accountToken ||
           !projectConsent?.checked || !accountCanWriteCloud || !selectedProjectId ||
           !localProjectCache?.some((project) => project.id === selectedProjectId && project.cloudId));
         upload.setAttribute('aria-label', clip.cloudFileId
           ? clip.name + ' uploaded; security scan pending'
-          : clip.uploading ? 'Cancel upload of ' + clip.name : 'Upload ' + clip.name + ' to cloud');
+          : clip.uploading ? 'Cancel upload of ' + clip.name
+            : clip.quotaChecking ? 'Checking storage for ' + clip.name
+              : 'Upload ' + clip.name + ' to cloud');
         upload.addEventListener('click', () => clip.uploading
           ? clip.uploadXhr?.abort() : uploadClipToCloud(clip));
         controls.append(upload);
@@ -496,6 +498,7 @@
   const accountPreferencesStatus = get('accountPreferencesStatus');
   const apiOriginMeta = document.querySelector('meta[name="hotice-api-origin"]');
   let accountToken = null;
+  let cloudRequestGeneration = 0;
   let accountPreferencesReady = false;
   let accountPreferencesRevision = 0;
   let accountPreferencesSaveQueue = Promise.resolve();
@@ -558,6 +561,7 @@
   }
 
   async function uploadClipToCloud(clip) {
+    if (clip.uploading || clip.quotaChecking) return;
     if (!clip.file || !cloudActionAllowed(true)) {
       clip.uploadMessage = 'Sign in, confirm cloud consent and check the active storage entitlement.';
       renderClips();
@@ -575,12 +579,37 @@
       renderClips();
       return;
     }
+    const sessionToken = accountToken;
+    const requestGeneration = cloudRequestGeneration;
+    clip.quotaChecking = true;
+    clip.uploadMessage = 'Checking current HOTICE cloud storage…';
+    renderClips();
+    const storageVerified = await refreshCloudStorageFromProfile(sessionToken, requestGeneration);
+    if (!storageVerified || !cloudRequestIsCurrent(sessionToken, requestGeneration, true) ||
+        selectedProjectId !== local.id || !clips.includes(clip) ||
+        !localProjectCache.some((project) => project.id === local.id && project.cloudId === local.cloudId)) {
+      clip.quotaChecking = false;
+      clip.uploadMessage = 'Could not verify cloud storage or consent changed. Your local clip is unchanged; retry when the account is available.';
+      renderClips();
+      return;
+    }
+    const availableBytes = Math.max(0, cloudStorage.quotaBytes - cloudStorage.usedBytes);
+    if (clip.file.size > availableBytes) {
+      clip.quotaChecking = false;
+      clip.uploadMessage = 'Not enough HOTICE cloud storage: ' + formatStorageBytes(availableBytes) +
+        ' available for this ' + formatStorageBytes(clip.file.size) + ' clip. Remove cloud media or change your plan; the local clip is unchanged.';
+      renderClips();
+      return;
+    }
+    clip.quotaChecking = false;
+    renderClips();
     const fileId = crypto.randomUUID();
     const confirmed = window.confirm('Upload “' + clip.name + '” (' +
       (clip.file.size / 1048576).toFixed(1) + ' MiB) to the private HOTICE cloud copy of “' +
       local.title + '”? Cloud storage use depends on your plan. The file will be unavailable until its security scan passes.');
     if (!confirmed) return;
-    if (!cloudActionAllowed(true) || selectedProjectId !== local.id || local.cloudId === '') return;
+    if (!cloudRequestIsCurrent(sessionToken, requestGeneration, true) ||
+        selectedProjectId !== local.id || !clips.includes(clip) || local.cloudId === '') return;
     const xhr = new XMLHttpRequest();
     clip.uploadXhr = xhr;
     clip.uploading = true;
@@ -590,9 +619,10 @@
       '/files/' + encodeURIComponent(fileId), true);
     xhr.withCredentials = false;
     xhr.setRequestHeader('Accept', 'application/json');
-    xhr.setRequestHeader('Authorization', 'Bearer ' + accountToken);
+    xhr.setRequestHeader('Authorization', 'Bearer ' + sessionToken);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.upload.onprogress = (event) => {
+      if (!cloudSessionIsCurrent(sessionToken, requestGeneration)) return;
       if (!event.lengthComputable) return;
       clip.uploadMessage = 'Uploading ' + Math.min(100, Math.round(event.loaded * 100 / event.total)) + '%…';
       renderClips();
@@ -602,16 +632,28 @@
       clip.uploadXhr = null;
       let result = null;
       try { result = JSON.parse(xhr.responseText); } catch (_) { /* reconcile below */ }
-      if (xhr.status === 201 && result?.id === fileId && result.scanStatus === 'pending') {
+      if (!cloudSessionIsCurrent(sessionToken, requestGeneration)) {
+        clip.uploadMessage = 'Cloud access changed while the upload was in flight. Check cloud files before retrying; the local clip is unchanged.';
+      } else if (xhr.status === 201 && result?.id === fileId && result.scanStatus === 'pending') {
         clip.cloudFileId = fileId;
         clip.uploadMessage = 'Uploaded privately. Security scan pending; this media cannot be used yet.';
-        await refreshCloudStorageFromProfile();
+        await refreshCloudStorageFromProfile(sessionToken, requestGeneration);
       } else if (xhr.status === 0 || xhr.status >= 500 || xhr.status === 201) {
-        await reconcileMediaUpload(clip, local, fileId);
+        await reconcileMediaUpload(clip, local, fileId, sessionToken, requestGeneration);
+      } else if (xhr.status === 413) {
+        const quotaRefreshed = cloudSessionIsCurrent(sessionToken, requestGeneration) &&
+          await refreshCloudStorageFromProfile(sessionToken, requestGeneration);
+        if (!cloudSessionIsCurrent(sessionToken, requestGeneration)) {
+          clip.uploadMessage = 'Cloud access changed while the upload was in flight. Check cloud files before retrying; the local clip is unchanged.';
+        } else if (quotaRefreshed && cloudStorage) {
+          const currentAvailable = Math.max(0, cloudStorage.quotaBytes - cloudStorage.usedBytes);
+          clip.uploadMessage = 'The server rejected this upload because cloud storage or the project file limit changed. Current available storage: ' +
+            formatStorageBytes(currentAvailable) + '. The local clip is unchanged; remove cloud media or change your plan, then retry.';
+        } else {
+          clip.uploadMessage = 'The server rejected this upload because cloud storage or the project file limit may have changed. Current quota could not be verified; the local clip is unchanged. Refresh storage before retrying.';
+        }
       } else {
-        clip.uploadMessage = xhr.status === 413
-          ? 'Cloud storage quota or file limit was reached. The local clip is unchanged.'
-          : xhr.status === 415 ? 'The server did not recognize this media format. The local clip is unchanged.'
+        clip.uploadMessage = xhr.status === 415 ? 'The server did not recognize this media format. The local clip is unchanged.'
             : xhr.status === 403 ? 'Cloud upload is unavailable for this account. The local clip is unchanged.'
               : 'Upload was rejected (HTTP ' + xhr.status + '). The local clip is unchanged.';
       }
@@ -620,28 +662,43 @@
     xhr.onerror = () => {
       clip.uploading = false;
       clip.uploadXhr = null;
-      reconcileMediaUpload(clip, local, fileId);
+      reconcileMediaUpload(clip, local, fileId, sessionToken, requestGeneration);
     };
     xhr.onabort = () => {
       clip.uploading = false;
       clip.uploadXhr = null;
-      clip.uploadMessage = 'Upload canceled. The local clip remains on this device; check cloud files before retrying.';
+      clip.uploadMessage = cloudSessionIsCurrent(sessionToken, requestGeneration)
+        ? 'Upload canceled. The local clip remains on this device; check cloud files before retrying.'
+        : 'Upload canceled after account or consent changed. Check cloud files before retrying; the local clip remains available.';
       renderClips();
     };
     xhr.send(clip.file);
   }
 
-  async function reconcileMediaUpload(clip, local, fileId) {
+  async function reconcileMediaUpload(clip, local, fileId, sessionToken, requestGeneration) {
     // The server project file list resolves a lost response before exposing a manual retry.
+    if (!cloudSessionIsCurrent(sessionToken, requestGeneration)) {
+      clip.uploadMessage = 'Cloud access changed while the upload was in flight. Check cloud files before retrying; the local clip remains unchanged.';
+      renderClips();
+      return;
+    }
     try {
-      const remote = await accountApi('/v1/projects/' + encodeURIComponent(local.cloudId), {token: accountToken});
+      const remote = await accountApi('/v1/projects/' + encodeURIComponent(local.cloudId), {token: sessionToken});
+      if (!cloudSessionIsCurrent(sessionToken, requestGeneration)) {
+        clip.uploadMessage = 'Cloud access changed while the upload was in flight. Check cloud files before retrying; the local clip remains unchanged.';
+        renderClips();
+        return;
+      }
       const file = Array.isArray(remote.files) && remote.files.find((item) => item.id === fileId);
       if (file) {
         clip.cloudFileId = fileId;
         clip.uploadMessage = 'Upload confirmed from cloud project. Security scan status: ' + String(file.scan_status || 'pending') + '.';
       } else clip.uploadMessage = 'Upload was not confirmed. Your local clip is unchanged; you may retry manually.';
     } catch (_) {
-      clip.uploadMessage = 'Upload outcome is unknown. Check cloud project files before retrying; your local clip is unchanged.';
+      if (!cloudSessionIsCurrent(sessionToken, requestGeneration)) return;
+      clip.uploadMessage = cloudSessionIsCurrent(sessionToken, requestGeneration)
+        ? 'Upload outcome is unknown. Check cloud project files before retrying; your local clip is unchanged.'
+        : 'Upload outcome is unknown for the previous account. Sign in to that account and check its cloud files before retrying.';
     }
     renderClips();
   }
@@ -942,18 +999,20 @@
     root.hidden = false;
   }
 
-  async function refreshCloudStorageFromProfile(token = accountToken) {
-    if (!token) return;
+  async function refreshCloudStorageFromProfile(token = accountToken, generation = cloudRequestGeneration) {
+    if (!token) return false;
     try {
       const profile = await accountApi('/v1/me', {token});
       const quotaBytes = profile.cloud?.quotaBytes;
       const usedBytes = profile.cloud?.usedBytes;
-      if (accountToken !== token || !Number.isSafeInteger(quotaBytes) || quotaBytes < 0 ||
-          !Number.isSafeInteger(usedBytes) || usedBytes < 0) return;
+      if (!cloudSessionIsCurrent(token, generation) || !Number.isSafeInteger(quotaBytes) || quotaBytes < 0 ||
+          !Number.isSafeInteger(usedBytes) || usedBytes < 0) return false;
       cloudStorage = {quotaBytes, usedBytes};
       refreshCloudStorageUsage();
+      return true;
     } catch (_) {
       // Keep the last server-confirmed quota visible if a background refresh fails.
+      return false;
     }
   }
 
@@ -1263,6 +1322,14 @@
       (write ? accountCanWriteCloud : accountCanReadCloud));
   }
 
+  function cloudSessionIsCurrent(token, generation) {
+    return accountToken === token && cloudRequestGeneration === generation;
+  }
+
+  function cloudRequestIsCurrent(token, generation, write = false) {
+    return cloudSessionIsCurrent(token, generation) && cloudActionAllowed(write);
+  }
+
   function refreshCloudControls() {
     const canRead = cloudActionAllowed(false);
     const canWrite = cloudActionAllowed(true);
@@ -1285,6 +1352,8 @@
 
   async function syncLocalProject(id, {asNewCopy = false} = {}) {
     if (!cloudActionAllowed(true)) return cloudProjectStatus('Sign in, confirm consent and check that cloud access is active.');
+    const sessionToken = accountToken;
+    const requestGeneration = cloudRequestGeneration;
     let project = localProjectCache.find((item) => item.id === id);
     if (!project) return cloudProjectStatus('Save this project on the device before syncing it.');
     try {
@@ -1304,9 +1373,11 @@
       if (new Blob([JSON.stringify(body)]).size > 120000) {
         return cloudProjectStatus('Project is larger than the server limit. Shorten prompts before syncing.');
       }
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration, true)) return;
       const response = await accountApi('/v1/projects/' + encodeURIComponent(cloudId), {
-        method: 'PUT', token: accountToken, body,
+        method: 'PUT', token: sessionToken, body,
       });
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration, true)) return;
       if (!Number.isInteger(response.revision) || typeof response.id !== 'string') {
         throw new Error('The HOTICE server returned an invalid project revision.');
       }
@@ -1315,11 +1386,14 @@
       project.cloudConflict = false;
       project.updatedAt = new Date().toISOString();
       await projectStore('readwrite', 'put', project);
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration, true)) return;
       selectedProjectId = project.id;
       await refreshLocalProjects();
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration, true)) return;
       renderClips();
       cloudProjectStatus('Cloud copy saved at revision ' + response.revision + '. Your local copy remains available on this device.');
     } catch (error) {
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration, true)) return;
       if (error.status === 409) {
         project.cloudConflict = true;
         await projectStore('readwrite', 'put', project).catch(() => {});
@@ -1340,10 +1414,13 @@
 
   async function loadCloudProjectList() {
     if (!cloudActionAllowed(false)) return cloudProjectStatus('Sign in, confirm consent and check cloud access before loading projects.');
+    const sessionToken = accountToken;
+    const requestGeneration = cloudRequestGeneration;
     const root = get('cloudProjects');
     root.replaceChildren(make('p', 'editor-note', 'Loading your HOTICE cloud project list…'));
     try {
-      const response = await accountApi('/v1/projects', {token: accountToken});
+      const response = await accountApi('/v1/projects', {token: sessionToken});
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration)) return;
       cloudProjectCache = Array.isArray(response.projects) ? response.projects : [];
       root.replaceChildren();
       if (!cloudProjectCache.length) root.append(make('p', 'editor-note', 'No cloud projects are saved to this account yet.'));
@@ -1371,6 +1448,7 @@
       }
       cloudProjectStatus('Cloud project list loaded. Media and Actor photos were not downloaded.');
     } catch (error) {
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration)) return;
       cloudProjectStatus(error.status === 403
         ? 'Cloud project list is not available for this account.'
         : 'Could not load the cloud project list. Local projects are unchanged.');
@@ -1382,13 +1460,16 @@
       panel.replaceChildren(make('small', 'editor-note', 'Sign in and confirm cloud consent to view secure media.'));
       return;
     }
+    const sessionToken = accountToken;
+    const requestGeneration = cloudRequestGeneration;
     const refresh = make('button', 'tool', 'Refresh scan status');
     refresh.type = 'button';
     refresh.disabled = true;
     const list = make('div', 'cloud-media-list');
     panel.replaceChildren(refresh, make('small', 'editor-note', 'Loading secure media metadata…'));
     try {
-      const response = await accountApi('/v1/projects/' + encodeURIComponent(projectId), {token: accountToken});
+      const response = await accountApi('/v1/projects/' + encodeURIComponent(projectId), {token: sessionToken});
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration)) return;
       if (!Array.isArray(response.files) || response.files.some((file) => !file ||
           typeof file.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(file.id) ||
           typeof file.mime !== 'string' || !Number.isInteger(Number(file.byte_size)) ||
@@ -1431,6 +1512,7 @@
       render(response.files);
       refresh.addEventListener('click', () => loadCloudMedia(projectId, panel));
     } catch (error) {
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration)) return;
       panel.replaceChildren(make('small', 'editor-note', error.status === 403
         ? 'Cloud media metadata is unavailable for this account.'
         : 'Could not load secure media metadata. Your device-local files are unchanged.'));
@@ -1440,6 +1522,7 @@
   async function previewCloudMedia(file) {
     if (!cloudActionAllowed(false) || !['video/mp4', 'video/webm'].includes(file.mime)) return;
     const sessionToken = accountToken;
+    const requestGeneration = cloudRequestGeneration;
     if (remotePreviewUrl) resetVideo();
     remoteMediaAbort?.abort();
     const controller = new AbortController();
@@ -1449,17 +1532,17 @@
       const grant = await accountApi('/v1/files/' + encodeURIComponent(file.id) + '/access-grants', {
         method: 'POST', token: sessionToken,
       });
-      if (accountToken !== sessionToken || !/^[a-f0-9]{64}$/i.test(grant.accessToken || '') ||
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration) || !/^[a-f0-9]{64}$/i.test(grant.accessToken || '') ||
           grant.tokenType !== 'Hotice-Media' || grant.contentPath !== '/v1/media/' + file.id + '/content') {
         throw new Error('Secure media access could not be verified.');
       }
-      if (!cloudActionAllowed(false)) throw new Error('Cloud consent was revoked.');
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration)) throw new Error('Cloud consent was revoked.');
       const response = await fetch(accountApiOrigin + grant.contentPath, {
         method: 'GET', mode: 'cors', credentials: 'omit', cache: 'no-store', redirect: 'error',
         signal: controller.signal,
         headers: {Accept: file.mime, Authorization: 'Hotice-Media ' + grant.accessToken},
       });
-      if (!response.ok || accountToken !== sessionToken) {
+      if (!response.ok || !cloudRequestIsCurrent(sessionToken, requestGeneration)) {
         const error = new Error('Secure media content is unavailable.');
         error.status = response.status;
         throw error;
@@ -1467,7 +1550,7 @@
       const blob = await response.blob();
       if (!blob.size || blob.size > 20 * 1024 * 1024 ||
           (blob.type && blob.type.split(';')[0] !== file.mime) ||
-          !cloudActionAllowed(false) || accountToken !== sessionToken) {
+          !cloudRequestIsCurrent(sessionToken, requestGeneration)) {
         throw new Error('Secure media content did not match the expected file.');
       }
       remoteMediaAbort = null;
@@ -1483,6 +1566,7 @@
       report('Secure preview ready. The access grant is short-lived and is not saved on this device.');
     } catch (error) {
       if (remoteMediaAbort === controller) remoteMediaAbort = null;
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration)) return;
       report(error.name === 'AbortError' ? 'Secure preview canceled because cloud access changed.' : error.status === 423
         ? 'This file is not available until its security scan passes. Refresh scan status later.'
         : 'Secure preview could not be loaded. Refresh the media list and try again if the scan passed.');
@@ -1492,12 +1576,16 @@
   async function deleteCloudMedia(projectId, file, panel) {
     if (!cloudActionAllowed(true) || !window.confirm('Remove this file from its private HOTICE cloud project and reclaim its storage quota?')) return;
     if (!cloudActionAllowed(true)) return;
+    const sessionToken = accountToken;
+    const requestGeneration = cloudRequestGeneration;
     try {
       const response = await accountApi('/v1/files/' + encodeURIComponent(file.id), {
-        method: 'DELETE', token: accountToken,
+        method: 'DELETE', token: sessionToken,
       });
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration, true)) return;
       if (response.deleted !== true) throw new Error('Cloud file deletion was not confirmed.');
-      await refreshCloudStorageFromProfile();
+      await refreshCloudStorageFromProfile(sessionToken);
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration, true)) return;
       if (remotePreviewFileId === file.id) resetVideo();
       for (const clip of clips) if (clip.cloudFileId === file.id) {
         clip.cloudFileId = null;
@@ -1507,10 +1595,13 @@
       await loadCloudMedia(projectId, panel);
       report('Cloud file removed and quota updated. Device-local originals remain available.');
     } catch (error) {
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration, true)) return;
       try {
-        const remote = await accountApi('/v1/projects/' + encodeURIComponent(projectId), {token: accountToken});
+        const remote = await accountApi('/v1/projects/' + encodeURIComponent(projectId), {token: sessionToken});
+        if (!cloudRequestIsCurrent(sessionToken, requestGeneration, true)) return;
         if (Array.isArray(remote.files) && !remote.files.some((item) => item.id === file.id)) {
           await loadCloudMedia(projectId, panel);
+          if (!cloudRequestIsCurrent(sessionToken, requestGeneration, true)) return;
           report('Cloud file removal confirmed from the project list. Device-local originals remain available.');
           return;
         }
@@ -1521,8 +1612,11 @@
 
   async function downloadCloudProject(id) {
     if (!cloudActionAllowed(false)) return cloudProjectStatus('Confirm consent before downloading cloud project data.');
+    const sessionToken = accountToken;
+    const requestGeneration = cloudRequestGeneration;
     try {
-      const response = await accountApi('/v1/projects/' + encodeURIComponent(id), {token: accountToken});
+      const response = await accountApi('/v1/projects/' + encodeURIComponent(id), {token: sessionToken});
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration)) return;
       const remote = response.project;
       if (!remote || remote.id !== id || !Number.isInteger(remote.revision)) {
         throw new Error('Invalid cloud project response.');
@@ -1536,9 +1630,15 @@
         document: safeProjectDocument(remote.document), updatedAt: new Date().toISOString(),
       };
       await projectStore('readwrite', 'put', project);
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration)) {
+        await projectStore('readwrite', 'delete', project.id).catch(() => {});
+        return;
+      }
       await refreshLocalProjects();
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration)) return;
       cloudProjectStatus('Cloud project copied to this device. Media and Actor photos were not downloaded.');
     } catch (_) {
+      if (!cloudRequestIsCurrent(sessionToken, requestGeneration)) return;
       cloudProjectStatus('Could not save this cloud project to the device. Existing local projects were kept.');
     }
   }
@@ -1546,6 +1646,7 @@
   get('saveLocalProject')?.addEventListener('click', saveLocalProject);
   projectConsent?.addEventListener('change', () => {
     if (!projectConsent.checked) {
+      cloudRequestGeneration += 1;
       for (const clip of clips) if (clip.uploading) clip.uploadXhr?.abort();
       remoteMediaAbort?.abort();
       if (remotePreviewUrl) resetVideo();
@@ -1560,14 +1661,22 @@
   refreshCloudControls();
 
   function showAccountForm(message) {
+    cloudRequestGeneration += 1;
     accountToken = null;
     cloudStorage = null;
     refreshCloudStorageUsage();
     resetAccountPreferences();
     mockGenerationEnabled = false;
     currentMockQuote = null;
+    accountCanWriteCloud = false;
+    accountCanReadCloud = false;
     accountSignedIn.hidden = true;
     selectAccountForm('login');
+    if (projectConsent) projectConsent.checked = false;
+    remoteMediaAbort?.abort();
+    if (remotePreviewUrl) resetVideo();
+    cloudProjectCache = [];
+    get('cloudProjects')?.replaceChildren();
     status('accountStatus', message);
     get('mockJobs')?.replaceChildren();
     refreshMockControls();
@@ -1580,6 +1689,8 @@
     const passwordField = get('accountPassword');
     const email = emailField.value.trim();
     const password = passwordField.value;
+    cloudRequestGeneration += 1;
+    const requestGeneration = cloudRequestGeneration;
     accountSignIn.disabled = true;
     status('accountStatus', 'Signing in and verifying your server session…');
     let issuedToken = null;
@@ -1592,6 +1703,7 @@
         throw new Error('Invalid HOTICE session response.');
       }
       const profile = await accountApi('/v1/me', {token: issuedToken});
+      if (cloudRequestGeneration !== requestGeneration) return;
       const returnedEmail = profile.user?.email;
       if (typeof returnedEmail !== 'string' ||
           returnedEmail.toLowerCase() !== email.toLowerCase()) {
@@ -1640,6 +1752,7 @@
 
   get('accountSignOut')?.addEventListener('click', async () => {
     const token = accountToken;
+    cloudRequestGeneration += 1;
     accountToken = null;
     cloudStorage = null;
     refreshCloudStorageUsage();

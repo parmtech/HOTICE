@@ -25,6 +25,25 @@ const cloudFileBytes = new Map();
 const apiEvents = [];
 let pageOrigin;
 let conflictProjectId = null;
+let cloudQuotaBytes = 10 * 1024 * 1024;
+let rejectNextUploadForQuota = false;
+let mediaUploadAttempts = 0;
+let deferNextCloudProjectList = false;
+let delayedCloudProjectListResponse = null;
+let resolveCloudProjectListRead;
+const delayedCloudProjectListRead = new Promise((resolve) => { resolveCloudProjectListRead = resolve; });
+let delayedCloudProjectReadId = null;
+let delayedCloudProjectResponse = null;
+let resolveCloudProjectRead;
+const delayedCloudProjectRead = new Promise((resolve) => { resolveCloudProjectRead = resolve; });
+let deferNextCloudMediaRead = false;
+let delayedCloudMediaResponse = null;
+let resolveCloudMediaRead;
+const delayedCloudMediaRead = new Promise((resolve) => { resolveCloudMediaRead = resolve; });
+let deferNextMediaGrant = false;
+let delayedMediaGrantResponse = null;
+let resolveMediaGrantRead;
+const delayedMediaGrantRead = new Promise((resolve) => { resolveMediaGrantRead = resolve; });
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -78,12 +97,18 @@ const api = http.createServer((req, res) => {
     }
     const uploadMatch = url.pathname.match(/^\/v1\/projects\/([0-9a-f-]{36})\/files\/([0-9a-f-]{36})$/i);
     if (uploadMatch && req.method === 'PUT') {
+      mediaUploadAttempts++;
       if (req.headers['content-type'] !== 'application/octet-stream') return json(res, 415, {error: 'Unsupported media type'});
       if (raw.length > 20 * 1024 * 1024) return json(res, 413, {error: 'Too large'});
       const project = cloudProjects.get(uploadMatch[1]);
       if (!project) return json(res, 404, {error: 'Project not found'});
       if (project.files.some((file) => file.id === uploadMatch[2])) return json(res, 409, {error: 'Duplicate media id'});
       if (req.headers.authorization !== 'Bearer ' + token) return json(res, 401, {error: 'Authentication required.'});
+      if (rejectNextUploadForQuota) {
+        rejectNextUploadForQuota = false;
+        cloudQuotaBytes = 20;
+        return json(res, 413, {error: 'Cloud storage quota exceeded.'});
+      }
       const file = {id: uploadMatch[2], mime: 'video/mp4', byte_size: raw.length, scan_status: 'pending'};
       project.files.push(file);
       cloudFileBytes.set(file.id, Buffer.from(raw));
@@ -96,6 +121,12 @@ const api = http.createServer((req, res) => {
       const file = [...cloudProjects.values()].flatMap((project) => project.files).find((item) => item.id === grantMatch[1]);
       if (!file) return json(res, 404, {error: 'Media not found'});
       if (file.scan_status !== 'clean') return json(res, 423, {error: 'Security scan pending'});
+      if (deferNextMediaGrant) {
+        deferNextMediaGrant = false;
+        delayedMediaGrantResponse = () => json(res, 201, {accessToken: 'b'.repeat(64), tokenType: 'Hotice-Media', contentPath: '/v1/media/' + file.id + '/content', expiresAt: new Date(Date.now() + 120000).toISOString()});
+        resolveMediaGrantRead();
+        return;
+      }
       return json(res, 201, {accessToken: 'b'.repeat(64), tokenType: 'Hotice-Media', contentPath: '/v1/media/' + file.id + '/content', expiresAt: new Date(Date.now() + 120000).toISOString()});
     }
     const contentMatch = url.pathname.match(/^\/v1\/media\/([0-9a-f-]{36})\/content$/i);
@@ -127,7 +158,7 @@ const api = http.createServer((req, res) => {
         .reduce((total, file) => total + Number(file.byte_size || 0), 0);
       return json(res, 200, {
         user: {id: '00000000-0000-4000-8000-000000000001', email: 'browser-test@example.test'},
-        cloud: {active: true, readable: true, quotaBytes: 10485760, usedBytes},
+        cloud: {active: true, readable: true, quotaBytes: cloudQuotaBytes, usedBytes},
         mockGeneration: {enabled: true, credits: 10, unit: 'simulated_credits', moneyValue: 0},
       });
     }
@@ -148,6 +179,14 @@ const api = http.createServer((req, res) => {
 
     if (url.pathname === '/v1/projects' && req.method === 'GET') {
       projectRequests.push({method: req.method, path: url.pathname, authorized: true});
+      if (deferNextCloudProjectList) {
+        deferNextCloudProjectList = false;
+        delayedCloudProjectListResponse = () => json(res, 200, {projects: [
+          {id: '00000000-0000-4000-8000-000000000901', title: 'Previous session private project', revision: 4, updated_at: new Date().toISOString()},
+        ]});
+        resolveCloudProjectListRead();
+        return;
+      }
       const projects = [...cloudProjects.values()].map(({id, title, revision, updated_at}) => ({id, title, revision, updated_at}));
       return json(res, 200, {projects});
     }
@@ -155,6 +194,22 @@ const api = http.createServer((req, res) => {
     if (match && req.method === 'GET') {
       projectRequests.push({method: req.method, path: url.pathname, authorized: true});
       const project = cloudProjects.get(match[1]);
+      if (match[1] === delayedCloudProjectReadId && project) {
+        delayedCloudProjectResponse = () => {
+          const {files, ...projectData} = project;
+          json(res, 200, {project: projectData, files: files.map(({bytes, ...file}) => file)});
+        };
+        resolveCloudProjectRead();
+        return;
+      }
+      if (deferNextCloudMediaRead) {
+        deferNextCloudMediaRead = false;
+        delayedCloudMediaResponse = () => json(res, 200, {files: [
+          {id: '00000000-0000-4000-8000-000000000902', mime: 'video/mp4', byte_size: 512, scan_status: 'clean'},
+        ]});
+        resolveCloudMediaRead();
+        return;
+      }
       if (project) {
         const {files, ...projectData} = project;
         return json(res, 200, {project: projectData, files: files.map(({bytes, ...file}) => file)});
@@ -373,9 +428,27 @@ async function main() {
     assert.equal(mediaUploadRequests.length, 0, 'revoked consent prevents file transfer');
     await page.locator('#cloudSyncConsent').check();
     assert.equal(await uploadButton.isDisabled(), false, 'explicit consent restores eligible upload');
-    await page.evaluate(() => { window.confirm = () => true; });
+    await page.evaluate(() => { window.__uploadConfirmCalls = 0; window.confirm = () => { window.__uploadConfirmCalls++; return true; }; });
+    cloudQuotaBytes = 20;
+    await uploadButton.click();
+    await page.getByText(/Not enough HOTICE cloud storage: 20 B available for this 21 B clip/).waitFor();
+    assert.equal(mediaUploadRequests.length, 0, 'quota preflight blocks upload before sending any media bytes');
+    assert.equal(await page.evaluate(() => window.__uploadConfirmCalls), 0, 'over-quota file is rejected before the confirmation prompt');
+    cloudQuotaBytes = 10 * 1024 * 1024;
+    rejectNextUploadForQuota = true;
+    await uploadButton.click();
+    await page.getByText(/Current available storage: 20 B/).waitFor();
+    assert.equal(mediaUploadAttempts, 1, 'the race rejection follows one confirmed upload attempt');
+    assert.equal(mediaUploadRequests.length, 0, 'a server quota race does not create a cloud media record');
+    assert.equal(await page.evaluate(() => window.__uploadConfirmCalls), 1);
+    assert.equal(await uploadButton.isDisabled(), false, 'a rejected cloud copy keeps the local clip available');
+    await page.getByText('Cloud storage · 0 B used of 20 B').waitFor();
+
+    cloudQuotaBytes = 10 * 1024 * 1024;
     await uploadButton.click();
     await page.getByText(/Uploaded privately\. Security scan pending/).waitFor();
+    assert.equal(await page.evaluate(() => window.__uploadConfirmCalls), 2, 'eligible upload is confirmed once after each fresh quota verification');
+    assert.equal(mediaUploadAttempts, 2);
     assert.equal(mediaUploadRequests.length, 1);
     assert.deepEqual(mediaUploadRequests[0].bytes, syntheticVideo, 'raw file bytes reach only the authenticated media route');
     await page.getByText('Cloud storage · 21 B used of 10 MiB').waitFor();
@@ -453,6 +526,71 @@ async function main() {
       await secondContext.close();
     }
 
+    const remoteOnlyProjectId = '00000000-0000-4000-8000-000000000900';
+    const remoteOnlyFileId = '00000000-0000-4000-8000-000000000903';
+    cloudProjects.set(remoteOnlyProjectId, {
+      id: remoteOnlyProjectId, title: 'Remote-only consent test', revision: 1,
+      document: {scenes: [{prompt: 'Private cloud prompt', model: 'storyboard_demo'}]},
+      files: [{id: remoteOnlyFileId, mime: 'video/mp4', byte_size: 512, scan_status: 'clean'}],
+      updated_at: new Date().toISOString(),
+    });
+    cloudFileBytes.set(remoteOnlyFileId, Buffer.from('synthetic clean cloud video'));
+    await page.locator('#loadCloudProjects').click();
+    const remoteOnlyCard = page.locator('#cloudProjects .project-card').filter({hasText: 'Remote-only consent test'});
+    await remoteOnlyCard.getByRole('button', {name: 'Save cloud copy on this device'}).waitFor();
+    delayedCloudProjectReadId = remoteOnlyProjectId;
+    await remoteOnlyCard.getByRole('button', {name: 'Save cloud copy on this device'}).click();
+    await delayedCloudProjectRead;
+    await page.locator('#cloudSyncConsent').uncheck();
+    delayedCloudProjectResponse();
+    delayedCloudProjectResponse = null;
+    await page.waitForTimeout(200);
+    assert.equal(await page.locator('#localProjects .project-card').filter({hasText: 'Remote-only consent test'}).count(), 0,
+      'revoking consent while a cloud download is in flight prevents its data from being saved locally');
+    assert.match(await page.locator('#cloudProjectStatus').textContent(), /Check the consent box/,
+      'a late project download does not overwrite the consent-revoked status');
+    delayedCloudProjectReadId = null;
+
+    await page.locator('#cloudSyncConsent').check();
+    deferNextCloudProjectList = true;
+    await page.locator('#loadCloudProjects').click();
+    await delayedCloudProjectListRead;
+    await page.locator('#cloudSyncConsent').uncheck();
+    await page.locator('#cloudSyncConsent').check();
+    await page.locator('#loadCloudProjects').click();
+    await page.getByText('Cloud project list loaded. Media and Actor photos were not downloaded.').waitFor();
+    delayedCloudProjectListResponse();
+    delayedCloudProjectListResponse = null;
+    await page.waitForTimeout(200);
+    assert.equal(await page.locator('#cloudProjects').getByText('Previous session private project').count(), 0,
+      'a project list response from before consent revocation cannot replace the current list');
+    assert.match(await page.locator('#cloudProjectStatus').textContent(), /Cloud project list loaded/);
+
+    const staleMediaCard = page.locator('#cloudProjects .project-card').filter({hasText: 'Remote-only consent test'});
+    deferNextCloudMediaRead = true;
+    await staleMediaCard.getByRole('button', {name: 'View secure media'}).click();
+    await delayedCloudMediaRead;
+    await page.locator('#cloudSyncConsent').uncheck();
+    delayedCloudMediaResponse();
+    delayedCloudMediaResponse = null;
+    await page.waitForTimeout(200);
+    assert.equal(await staleMediaCard.locator('.cloud-media-list').count(), 0,
+      'late media metadata cannot repopulate a panel after consent revocation');
+    await page.locator('#cloudSyncConsent').check();
+    await staleMediaCard.getByRole('button', {name: 'View secure media'}).click();
+    await staleMediaCard.getByText('Security scan passed').waitFor();
+    deferNextMediaGrant = true;
+    await staleMediaCard.getByRole('button', {name: 'Secure preview'}).click();
+    await delayedMediaGrantRead;
+    await page.locator('#cloudSyncConsent').uncheck();
+    delayedMediaGrantResponse();
+    delayedMediaGrantResponse = null;
+    await page.waitForTimeout(200);
+    assert.equal(await page.locator('#previewVideo').getAttribute('src'), null,
+      'a late media grant cannot start playback after consent revocation');
+    assert.doesNotMatch(await page.locator('#editorStatus').textContent(), /Secure preview ready/);
+    await page.locator('#cloudSyncConsent').check();
+
     console.log(JSON.stringify({
       result: 'PASS',
       scenarios: [
@@ -462,11 +600,12 @@ async function main() {
         'cloud controls disabled until login and consent',
         'entitled account loads cloud list',
         'first cloud upload is authenticated',
-        'explicit selected media upload sends exact bytes to private route and reports pending scan',
+        'fresh quota preflight blocks oversize use, reconciles an authoritative 413 quota race, preserves local media and allows a later eligible retry',
         'project media list shows scan state, blocks pending previews, uses short-lived grants after clean scan, and deletes cloud bytes without deleting local media',
         'revision conflict preserves local project',
         'separate cloud copy preserves both versions',
         'a second device downloads a cloud project into its own local storage',
+        'revoking consent blocks late cloud project downloads, project lists, media metadata and preview grants',
       ],
       mockCloudProjectCount: cloudProjects.size,
       mockJobCount: mockJobs.size,

@@ -97,8 +97,10 @@ def main():
     assert "sessionStorage.setItem('hotice.accessToken'" not in script
     assert "indexedDB.open(projectDbName, 1)" in script, "Browser projects must persist locally"
     assert "accountApi('/v1/projects'" in script, "Cloud listing must use the shared project API"
-    assert "method: 'PUT', token: accountToken, body" in script, "Cloud writes must be authenticated"
+    assert "method: 'PUT', token: sessionToken, body" in script, "Cloud writes must stay bound to the initiating session"
     assert "projectConsent?.checked" in script, "Cloud actions must require explicit consent"
+    assert "function cloudRequestIsCurrent(token, generation, write = false)" in script
+    assert "if (!cloudRequestIsCurrent(sessionToken, requestGeneration)) return;" in script, "Cloud reads must ignore stale session/consent responses"
     assert "video/mp4', 'video/webm" in script and "20 * 1024 * 1024" in script
     assert "Security scan pending" in script and "withCredentials = false" in script
     assert "uploadXhr?.abort()" in script, "Users must be able to cancel active uploads"
