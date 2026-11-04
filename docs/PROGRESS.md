@@ -4,6 +4,14 @@
 
 ## Integration checkpoint — 4 November 2026 (PR #86)
 
+### Actor photo workspace privacy — 4 November 2026 (PR #89)
+
+- [x] Encrypted preview widget is keyed by workspace and vault path, clearing its previous decrypted image immediately when the workspace/reference changes.
+- [x] Added regression coverage for switching away from a loaded image while the next workspace photo is still pending.
+- [x] Local Flutter test suite passes all 144 tests; Flutter analysis passes with informational lints only.
+- [ ] Exact-head CI run [41752838197](https://github.com/parmtech/HOTICE/actions/runs/41752838197): inventory, web/Chromium and Flutter checks passed; APK/emulator jobs were in progress at last check.
+- [ ] Physical Android/iOS vault, account-switch and accessibility acceptance remains required. Release remains NOT READY TO PUBLISH.
+
 - [x] PR #86 integrates PR #32's guided 2D reference engine with PR #79's encrypted device-local archive; both source PRs remain open and unchanged.
 - [x] Avatar/scene reference ownership and selected IDs persist in the encrypted archive; restore validates UUIDs, owners, formats, duplicate IDs and vault path suffixes. Photo cleanup is validated through the vault.
 - [x] Local `flutter test --no-pub` passes all 124 tests; `flutter analyze --no-pub --no-fatal-infos` passes with informational lints only.

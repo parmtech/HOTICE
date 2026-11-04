@@ -1,5 +1,9 @@
 # HOTICE — CURRENT HANDOFF (4 NOVEMBER 2026)
 
+## Latest continuation update — 4 November 2026
+
+On `feat/avatar-reference-gallery`, PR #89, code head `8d255b35474d787ec134bd8f3357048e6149feda` keys the encrypted photo preview subtree by workspace and file path. This prevents Flutter's retained `FutureBuilder` snapshot from briefly showing a decrypted reference from the previous workspace while another workspace loads. `flutter test --no-pub` passes all 144 tests; `flutter analyze --no-pub --no-fatal-infos` passes with existing informational lints. Exact-head CI [41752838197](https://github.com/parmtech/HOTICE/actions/runs/41752838197): inventory, static web/Chromium and Flutter analysis/tests passed; APK and emulator jobs were still running at last check. Keep the PR draft and release status NOT READY TO PUBLISH.
+
 **Canonical repo:** https://github.com/parmtech/HOTICE
 **Integration PR:** [#86](https://github.com/parmtech/HOTICE/pull/86) remains draft on PR #79. Current portable actor recovery is draft [PR #87](https://github.com/parmtech/HOTICE/pull/87), branch `feat/avatar-reference-portable-backup`, head `f9318d57a0b649bab22747bf6591a98763a33996`; it targets PR #86. Re-fetch exact heads and CI before proceeding.
 **Source PRs:** #32 and #79 remain open and unchanged; neither is merged into main.
